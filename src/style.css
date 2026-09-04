@@ -680,6 +680,150 @@ body::before {
   }
 }
 
+/* —— Admin —— */
+.shell-admin {
+  width: min(1280px, 100%);
+}
+
+.brand-admin {
+  margin-bottom: 1rem;
+}
+
+.panel-admin {
+  padding: 0;
+}
+
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem 1.25rem;
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(11, 31, 58, 0.04), transparent);
+}
+
+.admin-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.admin-stats strong {
+  color: var(--navy);
+  font-weight: 800;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.admin-search {
+  appearance: none;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 0.65rem 0.9rem;
+  font: inherit;
+  font-size: 0.9rem;
+  background: var(--cream);
+  color: var(--ink);
+  min-width: min(240px, 100%);
+}
+
+.admin-search:focus {
+  outline: 2px solid rgba(212, 160, 23, 0.45);
+  border-color: var(--gold);
+}
+
+.admin-actions .btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 0.95rem;
+  font-size: 0.85rem;
+}
+
+.admin-table-wrap {
+  overflow: auto;
+  max-height: min(70vh, 820px);
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 0.7rem 0.85rem;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.admin-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f3eee3;
+  color: var(--navy);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 800;
+}
+
+.admin-table tbody tr:hover {
+  background: rgba(212, 160, 23, 0.08);
+}
+
+.admin-table .col-num {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-table .col-when {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.admin-empty {
+  text-align: center !important;
+  padding: 2.5rem 1rem !important;
+  color: var(--muted);
+  white-space: normal;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  background: rgba(11, 31, 58, 0.08);
+  color: var(--navy);
+}
+
+.status-pill.is-confirmed {
+  background: rgba(15, 122, 74, 0.12);
+  color: var(--success);
+}
+
+.status-pill.is-waiting {
+  background: rgba(212, 160, 23, 0.2);
+  color: #8a6500;
+}
+
 @media (max-width: 560px) {
   #app {
     padding: 1rem;
@@ -710,5 +854,13 @@ body::before {
 
   .btn-ghost {
     width: 100%;
+  }
+
+  .admin-actions {
+    width: 100%;
+  }
+
+  .admin-search {
+    flex: 1 1 100%;
   }
 }

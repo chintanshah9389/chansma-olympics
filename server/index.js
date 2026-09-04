@@ -55,7 +55,13 @@ function rowToRegistration(row) {
 }
 
 const app = express()
-app.use(cors())
+app.use(
+  cors({
+    origin: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type'],
+  }),
+)
 app.use(express.json({ limit: '1mb' }))
 
 const server = http.createServer(app)

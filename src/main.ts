@@ -23,6 +23,7 @@ import {
   connectRealtime,
   onRealtimeUpdate,
 } from './realtime'
+import { destroyAdmin, isAdminRoute, renderAdmin } from './admin'
 import type {
   DoublesPlayer,
   DoublesPlayers,
@@ -1110,13 +1111,26 @@ function bindEvents(): void {
   })
 }
 
+function route(): void {
+  if (isAdminRoute()) {
+    renderAdmin(app)
+    return
+  }
+  destroyAdmin()
+  render()
+}
+
 async function boot(): Promise<void> {
   await refreshRegistrations()
   connectRealtime()
   onRealtimeUpdate(() => {
+    if (isAdminRoute()) return
     updateLiveSlotBadges()
   })
-  render()
+  window.addEventListener('hashchange', () => {
+    route()
+  })
+  route()
 }
 
 void boot()

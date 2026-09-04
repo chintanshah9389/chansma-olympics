@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:live": "vite",
     "dev:client": "vite",
     "dev:server": "node --watch server/index.js",
     "build": "tsc && vite build",
