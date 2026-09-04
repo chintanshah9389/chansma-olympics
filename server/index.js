@@ -211,24 +211,23 @@ function normalizeMobileDigits(value) {
   return String(value || '').replace(/\D/g, '')
 }
 
-/** Mobiles tied to one sport row (players + registration contact). */
-function sportEntryMobiles(entry, regMobile) {
+/** Player mobiles on a sport row only (not step‑1 registration contact). */
+function sportEntryMobiles(entry) {
   return [
     ...new Set(
       [
         normalizeMobileDigits(entry?.player1Mobile),
         normalizeMobileDigits(entry?.player2Mobile),
-        normalizeMobileDigits(regMobile),
       ].filter(Boolean),
     ),
   ]
 }
 
 /**
- * Block if registration contact or any player mobile is already in that sport.
- * Same number cannot enter the same sport twice.
+ * Block if any Player 1 / Player 2 mobile is already in that sport.
+ * Step‑1 contact mobile is ignored — it is only who is filling the form.
  */
-async function findRegistrationMobileConflict(regMobile, sports) {
+async function findRegistrationMobileConflict(_regMobile, sports) {
   const result = await pool.query(
     `SELECT id, full_name, mobile, sports FROM registrations`,
   )
@@ -237,7 +236,7 @@ async function findRegistrationMobileConflict(regMobile, sports) {
     const sportId = sport?.sportId
     if (!sportId || !SPORT_IDS.includes(sportId)) continue
 
-    const targets = sportEntryMobiles(sport, regMobile)
+    const targets = sportEntryMobiles(sport)
     if (targets.length === 0) continue
 
     for (const row of result.rows) {
@@ -245,12 +244,11 @@ async function findRegistrationMobileConflict(regMobile, sports) {
       const entry = existingSports.find((s) => s?.sportId === sportId)
       if (!entry) continue
 
-      const existing = sportEntryMobiles(entry, row.mobile)
+      const existing = sportEntryMobiles(entry)
       const matched = targets.find((m) => existing.includes(m))
       if (matched) {
-        const sportName = sportId
         const who = row.full_name || matched
-        return `Already registered: ${who} for ${sportName} (mobile ${matched}).`
+        return `Already registered: ${who} for ${sportId} (mobile ${matched}).`
       }
     }
   }

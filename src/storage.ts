@@ -154,14 +154,13 @@ export function availableSlots(sportId: SportId, gender: Gender): number {
   )
 }
 
-/** Mobiles that count as "already in this sport entry" */
-function entryPlayerMobiles(entry: SelectedSport, regMobile: string): string[] {
+/** Player mobiles that count for sport duplicate checks (not step‑1 contact). */
+function entryPlayerMobiles(entry: SelectedSport): string[] {
   return [
     ...new Set(
       [
         normalizeMobile(entry.player1Mobile ?? ''),
         normalizeMobile(entry.player2Mobile ?? ''),
-        normalizeMobile(regMobile),
       ].filter(Boolean),
     ),
   ]
@@ -169,7 +168,7 @@ function entryPlayerMobiles(entry: SelectedSport, regMobile: string): string[] {
 
 /**
  * If any player mobile is already registered for this sport
- * (any gender — same number cannot enter the same sport twice),
+ * (any gender — same player number cannot enter the same sport twice),
  * return that existing entry.
  */
 export function findExistingSportEntryByPlayers(
@@ -185,7 +184,7 @@ export function findExistingSportEntryByPlayers(
     const entry = reg.sports.find((s) => s.sportId === sportId)
     if (!entry) continue
 
-    const existing = entryPlayerMobiles(entry, reg.mobile)
+    const existing = entryPlayerMobiles(entry)
     const matchedMobile = targets.find((m) => existing.includes(m))
     if (matchedMobile) {
       return { registration: reg, entry, matchedMobile }
@@ -202,24 +201,19 @@ function playerLabel(name?: string, mobile?: string): string {
 }
 
 /**
- * Clear message when a player / contact mobile is already registered for a sport,
- * including their partner for doubles.
- *
- * Always checks: Player 1 mobile, Player 2 mobile (doubles), and registration contact mobile.
- * Same number cannot enter the same sport twice (any gender).
+ * Conflict when Player 1 / Player 2 mobile is already on this sport.
+ * Step‑1 contact mobile is info only and is never checked here.
  */
 export function describeSportConflict(
   sport: SelectedSport,
   sportName: string,
-  contactMobile?: string,
+  _contactMobile?: string,
 ): string | null {
   const mobiles: string[] = []
   if (sport.player1Mobile) mobiles.push(sport.player1Mobile)
   if (sport.format === 'double' && sport.player2Mobile) {
     mobiles.push(sport.player2Mobile)
   }
-  // Always include registration contact mobile — not only when player fields are empty
-  if (contactMobile) mobiles.push(contactMobile)
 
   const found = findExistingSportEntryByPlayers(mobiles, sport.sportId)
   if (!found) return null
