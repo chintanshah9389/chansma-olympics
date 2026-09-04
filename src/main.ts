@@ -103,6 +103,8 @@ let lastReference = ''
 let lastRegisteredSports: SelectedSport[] = []
 /** Last step painted — used to skip re-animating when only errors update */
 let paintedStep: WizardStep | null = null
+/** Slide direction for step transitions */
+let stepAnimDir: 'forward' | 'back' = 'forward'
 /** Avoid blur→re-render stealing the Continue / Submit tap on mobile */
 let suppressBlurRenderUntil = 0
 /** After render, scroll/focus the first invalid field */
@@ -429,6 +431,7 @@ function goNext(): void {
       render()
       return
     }
+    stepAnimDir = 'forward'
     step = 2
     render()
     return
@@ -452,6 +455,7 @@ function goNext(): void {
         state.formats[id] = 'single'
       }
     }
+    stepAnimDir = 'forward'
     step = needing.length > 0 ? 3 : 4
     render()
     return
@@ -463,6 +467,7 @@ function goNext(): void {
       render()
       return
     }
+    stepAnimDir = 'forward'
     step = 4
     render()
   }
@@ -470,6 +475,7 @@ function goNext(): void {
 
 function redirectToSubmitError(message: string): void {
   if (!state.gender) {
+    stepAnimDir = 'back'
     step = 2
     sportError = message
     submitError = ''
@@ -488,6 +494,7 @@ function redirectToSubmitError(message: string): void {
     if (!conflict) continue
 
     if (sportsNeedingPlayerDetails().includes(s.sportId)) {
+      stepAnimDir = 'back'
       step = 3
       doublesErrors[s.sportId] = {
         ...doublesErrors[s.sportId],
@@ -517,6 +524,7 @@ function goBack(): void {
   else if (step === 3) step = 2
   else if (step === 4) step = sportsNeedingPlayerDetails().length > 0 ? 3 : 2
 
+  stepAnimDir = 'back'
   sportError = ''
   formatError = ''
   doublesErrors = {}
@@ -621,6 +629,7 @@ async function submit(): Promise<void> {
     })
     lastReference = reference
     lastRegisteredSports = sports
+    stepAnimDir = 'forward'
     step = 5
     render()
   } catch (error) {
@@ -654,6 +663,7 @@ function resetForm(): void {
   submitError = ''
   lastReference = ''
   lastRegisteredSports = []
+  stepAnimDir = 'forward'
   step = 1
   render()
 }
@@ -1208,13 +1218,24 @@ function render(): void {
 
   if (!stepChanged) {
     body = body.replace(
-      'class="fade-step"',
-      'class="fade-step is-static"',
+      /class="fade-step([^"]*)"/,
+      'class="fade-step is-static$1"',
+    )
+  } else {
+    const dirClass =
+      stepAnimDir === 'back' ? 'fade-back' : 'fade-forward'
+    body = body.replace(
+      /class="fade-step([^"]*)"/,
+      `class="fade-step ${dirClass}$1"`,
     )
   }
 
   if (canPatch && shell && panel && panelBody) {
-    const scrollY = shouldRevealErrors ? null : window.scrollY
+    const scrollY = shouldRevealErrors
+      ? null
+      : stepChanged
+        ? 0
+        : window.scrollY
     const progress = panel.querySelector('.progress-track')
     if (step === 5) {
       progress?.remove()
@@ -1223,8 +1244,15 @@ function render(): void {
     } else {
       panel.insertAdjacentHTML('afterbegin', renderProgress())
     }
+    // Remount body so CSS animations always restart on step change
+    panelBody.replaceChildren()
     panelBody.innerHTML = body
-    if (scrollY !== null) window.scrollTo(0, scrollY)
+    if (scrollY !== null) {
+      window.scrollTo({
+        top: scrollY,
+        behavior: stepChanged ? 'smooth' : 'auto',
+      })
+    }
   } else {
     app.innerHTML = `
     <a class="nav-corner nav-corner-left" href="#/admin">${iconAdmin()} Admin</a>

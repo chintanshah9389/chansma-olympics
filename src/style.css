@@ -1715,25 +1715,27 @@ input.is-invalid,
 
   .btn-inner {
     justify-content: center;
+    flex-wrap: wrap;
   }
 
+  /* Keep "Continue / આગળ વધો" on one line with the slash visible */
   .btn-inner .i18n-line {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.05rem;
-    line-height: 1.15;
+    display: inline;
+    line-height: 1.25;
     font-size: 0.92rem;
+    text-align: center;
   }
 
   .btn-inner .i18n-sep {
-    display: none;
+    display: inline-block;
+    margin: 0 0.4em;
+    opacity: 0.65;
   }
 
   .btn-inner .i18n-gu {
-    font-size: 0.78rem;
+    font-size: 0.86rem;
     font-weight: 600;
-    opacity: 0.9;
+    opacity: 0.92;
   }
 
   .review-item {
@@ -2170,21 +2172,60 @@ input.is-invalid,
 }
 
 .fade-step {
-  animation: fade-step 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fade-forward 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.fade-step.fade-forward {
+  animation-name: fade-forward;
+}
+
+.fade-step.fade-back {
+  animation-name: fade-back;
 }
 
 .fade-step.is-static {
   animation: none;
 }
 
-@keyframes fade-step {
+@keyframes fade-forward {
   from {
     opacity: 0;
-    transform: translateX(14px);
+    transform: translateX(28px);
   }
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+@keyframes fade-back {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.progress-track {
+  transition: opacity 0.25s ease;
+}
+
+.progress-item.is-active .progress-dot {
+  animation: progress-pop 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes progress-pop {
+  0% {
+    transform: scale(0.72);
+  }
+  60% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 
