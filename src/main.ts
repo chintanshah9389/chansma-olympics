@@ -1079,7 +1079,7 @@ function renderStep4(): string {
   const hasWaiting = sports.some((s) => s.status === 'waiting')
 
   return `
-    <div class="fade-step">
+    <div class="fade-step review-step">
       <h2 class="step-title">${bi('Review & submit', GU.reviewTitle)}</h2>
       <p class="step-sub">${bi('Confirm your details and sports. Full sports go on the waiting list.', GU.reviewSub)}</p>
 

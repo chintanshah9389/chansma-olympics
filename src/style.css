@@ -1488,10 +1488,21 @@ input.is-invalid,
 
   .panel {
     border-radius: 16px;
+    overflow: visible;
   }
 
   .panel-body {
     padding: 0.15rem 0.9rem 1.15rem;
+    overflow: visible;
+  }
+
+  .fade-step {
+    padding-bottom: 0.25rem;
+  }
+
+  .review-step .review-list {
+    /* Keep last sport card clear of sticky Submit bar */
+    margin-bottom: 0.25rem;
   }
 
   /* Stepper — keep 4 steps readable on phone */
@@ -1680,19 +1691,20 @@ input.is-invalid,
     z-index: 5;
     flex-direction: column-reverse;
     gap: 0.55rem;
-    margin-top: 1.25rem;
+    margin-top: 1.35rem;
     margin-left: -0.9rem;
     margin-right: -0.9rem;
-    margin-bottom: -1.15rem;
-    padding: 0.85rem 0.9rem calc(0.85rem + env(safe-area-inset-bottom, 0px));
+    margin-bottom: 0;
+    padding: 0.85rem 0.9rem calc(0.95rem + env(safe-area-inset-bottom, 0px));
     background: linear-gradient(
       180deg,
       rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.92) 18%,
-      rgba(255, 255, 255, 0.98) 40%
+      rgba(255, 255, 255, 0.94) 22%,
+      rgba(255, 255, 255, 0.98) 45%
     );
     backdrop-filter: blur(8px);
     border-top: 1px solid rgba(16, 36, 63, 0.08);
+    border-radius: 0 0 16px 16px;
   }
 
   .btn {
@@ -1701,6 +1713,9 @@ input.is-invalid,
     min-height: 3rem;
     justify-content: center;
     touch-action: manipulation;
+    white-space: normal;
+    height: auto;
+    padding: 0.75rem 1rem;
   }
 
   .btn-primary,
@@ -1716,45 +1731,113 @@ input.is-invalid,
   .btn-inner {
     justify-content: center;
     flex-wrap: wrap;
+    max-width: 100%;
+    text-align: center;
   }
 
-  /* Keep "Continue / આગળ વધો" on one line with the slash visible */
+  /* Keep "Continue / આગળ વધો" readable with slash; wrap if needed */
   .btn-inner .i18n-line {
     display: inline;
-    line-height: 1.25;
-    font-size: 0.92rem;
+    line-height: 1.3;
+    font-size: 0.88rem;
     text-align: center;
+    white-space: normal;
   }
 
   .btn-inner .i18n-sep {
     display: inline-block;
-    margin: 0 0.4em;
+    margin: 0 0.35em;
     opacity: 0.65;
   }
 
   .btn-inner .i18n-gu {
-    font-size: 0.86rem;
+    font-size: 0.82rem;
     font-weight: 600;
     opacity: 0.92;
+  }
+
+  .review-list {
+    gap: 0.65rem;
+    /* Keep last cards clear of sticky actions */
+    padding-bottom: 0.35rem;
   }
 
   .review-item {
     grid-template-columns: 1fr;
     align-items: start;
     gap: 0.65rem;
+    padding: 0.85rem 0.9rem;
+    min-width: 0;
+  }
+
+  .review-item:hover {
+    transform: none;
   }
 
   .review-sport {
     width: 100%;
+    min-width: 0;
+  }
+
+  .review-sport > div {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .review-item h4 {
+    font-size: 0.95rem;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .review-item .meta,
+  .review-item .existing-detail {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .review-item .badge {
+    justify-self: start;
+    max-width: 100%;
+    white-space: normal;
+    text-align: left;
+    line-height: 1.3;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    padding: 0.4rem 0.7rem;
+  }
+
+  .review-item .badge .i18n-line {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+  }
+
+  .review-item .badge .i18n-sep {
+    display: none;
   }
 
   .summary-box {
     padding: 0.9rem;
+    overflow: hidden;
+  }
+
+  .summary-box .i18n-line {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .summary-box .i18n-sep {
+    display: none;
   }
 
   .reference-box {
     max-width: 100%;
     padding: 1rem 0.9rem;
+    overflow: hidden;
   }
 
   .reference-code {
