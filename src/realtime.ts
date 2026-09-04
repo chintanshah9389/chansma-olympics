@@ -1,4 +1,4 @@
-import { refreshRegistrations } from './storage'
+import { refreshCapacities, refreshRegistrations } from './storage'
 
 type RealtimeListener = () => void
 
@@ -29,8 +29,12 @@ function notify(): void {
   for (const listener of listeners) listener()
 }
 
-async function handleUpdate(): Promise<void> {
-  await refreshRegistrations()
+async function handleUpdate(type?: string): Promise<void> {
+  if (type === 'capacities-updated') {
+    await refreshCapacities()
+  } else {
+    await Promise.all([refreshRegistrations(), refreshCapacities()])
+  }
   notify()
 }
 
@@ -67,8 +71,12 @@ export function connectRealtime(): void {
   socket.addEventListener('message', (event) => {
     try {
       const data = JSON.parse(String(event.data)) as { type?: string }
-      if (data.type === 'registrations-updated' || data.type === 'connected') {
-        void handleUpdate()
+      if (
+        data.type === 'registrations-updated' ||
+        data.type === 'capacities-updated' ||
+        data.type === 'connected'
+      ) {
+        void handleUpdate(data.type)
       }
     } catch {
       // ignore bad payloads

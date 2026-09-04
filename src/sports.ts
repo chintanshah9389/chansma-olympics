@@ -1,5 +1,8 @@
 import type { Gender, SportConfig, SportId } from './types'
 
+export type SportCapacityPair = { male: number; female: number }
+export type SportCapacities = Record<SportId, SportCapacityPair>
+
 export const SPORTS: Record<SportId, SportConfig> = {
   football: {
     id: 'football',
@@ -55,6 +58,44 @@ export const SECONDARY_SPORTS: SportId[] = [
   'tt',
   'badminton',
 ]
+
+export const ALL_SPORT_IDS = Object.keys(SPORTS) as SportId[]
+
+export function defaultCapacities(): SportCapacities {
+  return Object.fromEntries(
+    ALL_SPORT_IDS.map((id) => [
+      id,
+      {
+        male: SPORTS[id].capacityMale,
+        female: SPORTS[id].capacityFemale,
+      },
+    ]),
+  ) as SportCapacities
+}
+
+export function getCapacities(): SportCapacities {
+  return Object.fromEntries(
+    ALL_SPORT_IDS.map((id) => [
+      id,
+      {
+        male: SPORTS[id].capacityMale,
+        female: SPORTS[id].capacityFemale,
+      },
+    ]),
+  ) as SportCapacities
+}
+
+/** Apply live capacities from API / admin (updates slot math everywhere). */
+export function applyCapacities(capacities: Partial<SportCapacities>): void {
+  for (const id of ALL_SPORT_IDS) {
+    const pair = capacities[id]
+    if (!pair) continue
+    const male = Math.max(0, Math.floor(Number(pair.male)))
+    const female = Math.max(0, Math.floor(Number(pair.female)))
+    if (Number.isFinite(male)) SPORTS[id].capacityMale = male
+    if (Number.isFinite(female)) SPORTS[id].capacityFemale = female
+  }
+}
 
 export function sportLabel(id: SportId): string {
   return SPORTS[id].label

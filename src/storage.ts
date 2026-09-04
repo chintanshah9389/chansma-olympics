@@ -4,7 +4,7 @@ import type {
   SelectedSport,
   SportId,
 } from './types'
-import { sportCapacity } from './sports'
+import { applyCapacities, getCapacities, sportCapacity, type SportCapacities } from './sports'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || ''
 
@@ -41,6 +41,40 @@ export async function refreshRegistrations(): Promise<Registration[]> {
     console.error(loadError)
     return cache
   }
+}
+
+export async function refreshCapacities(): Promise<SportCapacities> {
+  try {
+    const response = await fetch(apiUrl('/api/capacities'))
+    if (!response.ok) {
+      throw new Error(`Capacity load failed (${response.status})`)
+    }
+    const data = (await response.json()) as SportCapacities
+    applyCapacities(data)
+    return getCapacities()
+  } catch (error) {
+    console.error('Could not load capacities', error)
+    return getCapacities()
+  }
+}
+
+export async function saveCapacities(
+  capacities: SportCapacities,
+): Promise<SportCapacities> {
+  const response = await fetch(apiUrl('/api/capacities'), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(capacities),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new Error(body?.error || `Save capacities failed (${response.status})`)
+  }
+  const data = (await response.json()) as SportCapacities
+  applyCapacities(data)
+  return getCapacities()
 }
 
 export async function saveRegistration(

@@ -1,9 +1,17 @@
 import {
   getRegistrations,
   getStorageError,
+  refreshCapacities,
   refreshRegistrations,
+  saveCapacities,
 } from './storage'
-import { SPORTS, genderLabel, sportLabel } from './sports'
+import {
+  ALL_SPORT_IDS,
+  getCapacities,
+  genderLabel,
+  sportLabel,
+  type SportCapacities,
+} from './sports'
 import type { Gender, Registration, SelectedSport, SportId, SportSeatStatus } from './types'
 import { onRealtimeUpdate } from './realtime'
 
@@ -16,7 +24,21 @@ type SportFilter = 'all' | SportId
 type GenderFilter = 'all' | Gender
 type StatusFilter = 'all' | SportSeatStatus
 
-const ALL_SPORT_IDS = Object.keys(SPORTS) as SportId[]
+let capacityDraft: SportCapacities | null = null
+let capacityMessage = ''
+let capacityError = ''
+let capacitySaving = false
+
+function ensureCapacityDraft(): SportCapacities {
+  if (!capacityDraft) {
+    capacityDraft = structuredClone(getCapacities())
+  }
+  return capacityDraft
+}
+
+function syncCapacityDraftFromLive(): void {
+  capacityDraft = structuredClone(getCapacities())
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -242,6 +264,61 @@ export function renderAdmin(root: HTMLElement): void {
       </header>
 
       <main class="panel panel-admin">
+        <section class="capacity-panel">
+          <div class="capacity-header">
+            <div>
+              <h2 class="capacity-title">Slot counts</h2>
+              <p class="capacity-sub">
+                Set Men and Women capacity for every sport. Click Apply — registration form slot badges update live in the browser.
+              </p>
+            </div>
+            <div class="capacity-actions">
+              <label class="fill-all">
+                Fill all
+                <input type="number" min="0" step="1" name="fillAllValue" value="16" />
+              </label>
+              <button type="button" class="btn btn-ghost" data-admin="fill-all">Set all men &amp; women</button>
+              <button type="button" class="btn btn-primary" data-admin="apply-capacities" ${capacitySaving ? 'disabled' : ''}>
+                ${capacitySaving ? 'Applying…' : 'Apply'}
+              </button>
+            </div>
+          </div>
+          ${
+            capacityError
+              ? `<div class="alert">${escapeHtml(capacityError)}</div>`
+              : ''
+          }
+          ${
+            capacityMessage
+              ? `<div class="capacity-ok">${escapeHtml(capacityMessage)}</div>`
+              : ''
+          }
+          <div class="capacity-grid">
+            ${ALL_SPORT_IDS.map((id) => {
+              const caps = ensureCapacityDraft()[id]
+              return `
+              <div class="capacity-card">
+                <h3>${sportLabel(id)}</h3>
+                <div class="capacity-fields">
+                  <div class="field">
+                    <label for="cap-male-${id}">Men</label>
+                    <input id="cap-male-${id}" type="number" min="0" step="1"
+                      data-cap-sport="${id}" data-cap-gender="male"
+                      value="${caps.male}" />
+                  </div>
+                  <div class="field">
+                    <label for="cap-female-${id}">Women</label>
+                    <input id="cap-female-${id}" type="number" min="0" step="1"
+                      data-cap-sport="${id}" data-cap-gender="female"
+                      value="${caps.female}" />
+                  </div>
+                </div>
+              </div>
+            `
+            }).join('')}
+          </div>
+        </section>
+
         <div class="admin-toolbar">
           <div class="admin-stats">
             <span><strong>${regs.length}</strong> registrations</span>
@@ -371,11 +448,30 @@ export function renderAdmin(root: HTMLElement): void {
     })
   })
 
+  root.querySelectorAll<HTMLInputElement>('[data-cap-sport]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const sportId = input.dataset.capSport as SportId
+      const gender = input.dataset.capGender as 'male' | 'female'
+      const draft = ensureCapacityDraft()
+      const value = Math.max(0, Math.floor(Number(input.value) || 0))
+      draft[sportId][gender] = value
+      capacityMessage = ''
+      capacityError = ''
+    })
+  })
+
   root.querySelectorAll<HTMLButtonElement>('[data-admin]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const action = btn.dataset.admin
       if (action === 'refresh') {
-        void refreshRegistrations().then(() => renderAdmin(root))
+        void Promise.all([refreshRegistrations(), refreshCapacities()]).then(
+          () => {
+            syncCapacityDraftFromLive()
+            capacityMessage = ''
+            capacityError = ''
+            renderAdmin(root)
+          },
+        )
       } else if (action === 'csv') {
         downloadCsv(rows)
       } else if (action === 'clear') {
@@ -384,11 +480,47 @@ export function renderAdmin(root: HTMLElement): void {
         genderFilter = 'all'
         statusFilter = 'all'
         renderAdmin(root)
+      } else if (action === 'fill-all') {
+        const fillInput = root.querySelector<HTMLInputElement>(
+          'input[name="fillAllValue"]',
+        )
+        const value = Math.max(0, Math.floor(Number(fillInput?.value) || 16))
+        const draft = ensureCapacityDraft()
+        for (const id of ALL_SPORT_IDS) {
+          draft[id] = { male: value, female: value }
+        }
+        capacityMessage = `Filled all sports to ${value} men & ${value} women — click Apply to save.`
+        capacityError = ''
+        renderAdmin(root)
+      } else if (action === 'apply-capacities') {
+        capacitySaving = true
+        capacityError = ''
+        capacityMessage = ''
+        renderAdmin(root)
+        void saveCapacities(ensureCapacityDraft())
+          .then(() => {
+            syncCapacityDraftFromLive()
+            capacityMessage =
+              'Applied. Slot counts are live for everyone with the form open.'
+            capacityError = ''
+          })
+          .catch((error) => {
+            capacityError =
+              error instanceof Error
+                ? error.message
+                : 'Could not apply capacities'
+            capacityMessage = ''
+          })
+          .finally(() => {
+            capacitySaving = false
+            renderAdmin(root)
+          })
       }
     })
   })
 
   unsubRealtime = onRealtimeUpdate(() => {
+    syncCapacityDraftFromLive()
     renderAdmin(root)
   })
 }

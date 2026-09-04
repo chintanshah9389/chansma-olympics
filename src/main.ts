@@ -8,6 +8,7 @@ import {
   describeSportConflict,
   getStorageError,
   normalizeMobile,
+  refreshCapacities,
   refreshRegistrations,
   saveRegistration,
 } from './storage'
@@ -1185,7 +1186,7 @@ function route(): void {
 }
 
 async function boot(): Promise<void> {
-  await refreshRegistrations()
+  await Promise.all([refreshRegistrations(), refreshCapacities()])
   connectRealtime()
   onRealtimeUpdate(() => {
     if (isAdminRoute()) return

@@ -767,6 +767,111 @@ body::before {
   padding: 0;
 }
 
+.capacity-panel {
+  padding: 1.15rem 1.25rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(212, 160, 23, 0.08), transparent);
+}
+
+.capacity-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.capacity-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.65rem;
+  letter-spacing: 0.04em;
+  color: var(--navy);
+}
+
+.capacity-sub {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  max-width: 42rem;
+}
+
+.capacity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fill-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fill-all input {
+  width: 4.5rem;
+  appearance: none;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  background: var(--cream);
+  color: var(--ink);
+}
+
+.capacity-ok {
+  margin: 0 0 0.85rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(15, 122, 74, 0.1);
+  border: 1px solid rgba(15, 122, 74, 0.25);
+  color: var(--success);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.capacity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.capacity-card {
+  padding: 0.85rem 0.9rem;
+  border-radius: 14px;
+  border: 1.5px solid var(--line);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.capacity-card h3 {
+  margin: 0 0 0.65rem;
+  font-size: 0.95rem;
+  color: var(--navy);
+}
+
+.capacity-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.capacity-fields .field {
+  margin-bottom: 0;
+}
+
+.capacity-fields input {
+  padding: 0.55rem 0.65rem;
+}
+
 .admin-toolbar {
   display: flex;
   flex-wrap: wrap;

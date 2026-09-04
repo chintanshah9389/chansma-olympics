@@ -22,6 +22,44 @@ const pool = new Pool({
       : undefined,
 })
 
+const DEFAULT_CAPACITIES = {
+  football: { male: 22, female: 22 },
+  pickleball: { male: 16, female: 16 },
+  carrom: { male: 16, female: 16 },
+  chess: { male: 16, female: 16 },
+  tt: { male: 16, female: 16 },
+  badminton: { male: 16, female: 16 },
+}
+
+const SPORT_IDS = Object.keys(DEFAULT_CAPACITIES)
+
+function normalizeCapacities(input) {
+  const source = input && typeof input === 'object' ? input : {}
+  const out = {}
+  for (const id of SPORT_IDS) {
+    const pair = source[id] || {}
+    const fallback = DEFAULT_CAPACITIES[id]
+    const male = Math.max(0, Math.floor(Number(pair.male ?? fallback.male)))
+    const female = Math.max(
+      0,
+      Math.floor(Number(pair.female ?? fallback.female)),
+    )
+    out[id] = {
+      male: Number.isFinite(male) ? male : fallback.male,
+      female: Number.isFinite(female) ? female : fallback.female,
+    }
+  }
+  return out
+}
+
+async function readCapacities() {
+  const result = await pool.query(
+    `SELECT value FROM settings WHERE key = 'capacities' LIMIT 1`,
+  )
+  if (result.rowCount === 0) return { ...DEFAULT_CAPACITIES }
+  return normalizeCapacities(result.rows[0].value)
+}
+
 async function ensureSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS registrations (
@@ -39,7 +77,23 @@ async function ensureSchema() {
 
     CREATE INDEX IF NOT EXISTS idx_registrations_mobile
       ON registrations (mobile);
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `)
+
+  const existing = await pool.query(
+    `SELECT value FROM settings WHERE key = 'capacities' LIMIT 1`,
+  )
+  if (existing.rowCount === 0) {
+    await pool.query(
+      `INSERT INTO settings (key, value) VALUES ('capacities', $1::jsonb)`,
+      [JSON.stringify(DEFAULT_CAPACITIES)],
+    )
+  }
 }
 
 function rowToRegistration(row) {
@@ -67,13 +121,21 @@ app.use(express.json({ limit: '1mb' }))
 const server = http.createServer(app)
 const wss = new WebSocketServer({ server, path: '/ws' })
 
-function broadcastRegistrationsUpdated() {
-  const message = JSON.stringify({ type: 'registrations-updated' })
+function broadcast(type) {
+  const message = JSON.stringify({ type })
   for (const client of wss.clients) {
     if (client.readyState === 1) {
       client.send(message)
     }
   }
+}
+
+function broadcastRegistrationsUpdated() {
+  broadcast('registrations-updated')
+}
+
+function broadcastCapacitiesUpdated() {
+  broadcast('capacities-updated')
 }
 
 wss.on('connection', (socket) => {
@@ -82,6 +144,33 @@ wss.on('connection', (socket) => {
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, realtime: 'websocket' })
+})
+
+app.get('/api/capacities', async (_req, res) => {
+  try {
+    res.json(await readCapacities())
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: 'Failed to load capacities' })
+  }
+})
+
+app.put('/api/capacities', async (req, res) => {
+  try {
+    const capacities = normalizeCapacities(req.body)
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at)
+       VALUES ('capacities', $1::jsonb, NOW())
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value, updated_at = NOW()`,
+      [JSON.stringify(capacities)],
+    )
+    broadcastCapacitiesUpdated()
+    res.json(capacities)
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: 'Failed to save capacities' })
+  }
 })
 
 app.get('/api/registrations', async (_req, res) => {
