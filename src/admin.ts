@@ -63,6 +63,7 @@ function matchesQuery(row: FlatRow, q: string): boolean {
   const r = row.registration
   const s = row.sport
   const hay = [
+    r.id,
     r.fullName,
     r.mobile,
     r.location,
@@ -107,6 +108,7 @@ function rowHtml(row: FlatRow, index: number): string {
   return `
     <tr>
       <td class="col-num">${index + 1}</td>
+      <td class="col-ref"><code>${escapeHtml(r.id)}</code></td>
       <td>${escapeHtml(r.fullName)}</td>
       <td>${escapeHtml(r.mobile)}</td>
       <td>${escapeHtml(r.location)}</td>
@@ -131,6 +133,7 @@ function csvEscape(value: string): string {
 function downloadCsv(rows: FlatRow[]): void {
   const headers = [
     '#',
+    'Reference',
     'Full Name',
     'Mobile',
     'Location',
@@ -152,6 +155,7 @@ function downloadCsv(rows: FlatRow[]): void {
       const s = row.sport
       return [
         String(i + 1),
+        r.id,
         r.fullName,
         r.mobile,
         r.location,
@@ -306,6 +310,7 @@ export function renderAdmin(root: HTMLElement): void {
             <thead>
               <tr>
                 <th>#</th>
+                <th>Reference</th>
                 <th>Full name</th>
                 <th>Mobile</th>
                 <th>Location</th>
@@ -324,7 +329,7 @@ export function renderAdmin(root: HTMLElement): void {
               ${
                 rows.length
                   ? rows.map((row, i) => rowHtml(row, i)).join('')
-                  : `<tr><td colspan="13" class="admin-empty">No rows match these filters.</td></tr>`
+                  : `<tr><td colspan="14" class="admin-empty">No rows match these filters.</td></tr>`
               }
             </tbody>
           </table>

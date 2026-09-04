@@ -16,6 +16,8 @@ import {
   SECONDARY_SPORTS,
   genderLabel,
   needsFormat,
+  needsPlayerDetails,
+  needsPlayerDetailsOnly,
   sportCapacity,
   sportLabel,
 } from './sports'
@@ -65,6 +67,9 @@ let doublesErrors: Partial<
   >
 > = {}
 let submitError = ''
+/** Shown on success screen after a completed registration */
+let lastReference = ''
+let lastRegisteredSports: SelectedSport[] = []
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
@@ -77,32 +82,37 @@ function selectedSportsList(): SportId[] {
   return list
 }
 
-function sportsNeedingFormat(): SportId[] {
-  return selectedSportsList().filter(needsFormat)
+/** Format-choice sports + football / carrom / chess player details */
+function sportsNeedingPlayerDetails(): SportId[] {
+  return selectedSportsList().filter(needsPlayerDetails)
+}
+
+function playerLine(name?: string, mobile?: string): string {
+  if (name && mobile) return `${name} · ${mobile}`
+  if (name) return name
+  if (mobile) return mobile
+  return ''
 }
 
 function formatLabel(sport: SelectedSport): string {
   const waitTag = sport.status === 'waiting' ? ' · Waiting list' : ''
-  if (sport.sportId === 'football') return `Team sport${waitTag}`
-  if (!needsFormat(sport.sportId)) return `Singles only${waitTag}`
+  const player = playerLine(sport.player1Name, sport.player1Mobile)
+
+  if (sport.sportId === 'football') {
+    return player ? `Team — ${player}${waitTag}` : `Team sport${waitTag}`
+  }
+  if (!needsFormat(sport.sportId)) {
+    return player ? `Singles — ${player}${waitTag}` : `Singles only${waitTag}`
+  }
   if (sport.format === 'double') {
     if (sport.player1Name && sport.player2Name) {
-      const p1 = sport.player1Mobile
-        ? `${sport.player1Name} · ${sport.player1Mobile}`
-        : sport.player1Name
-      const p2 = sport.player2Mobile
-        ? `${sport.player2Name} · ${sport.player2Mobile}`
-        : sport.player2Name
+      const p1 = playerLine(sport.player1Name, sport.player1Mobile)
+      const p2 = playerLine(sport.player2Name, sport.player2Mobile)
       return `Doubles — P1: ${p1} | P2: ${p2}${waitTag}`
     }
     return `Doubles${waitTag}`
   }
-  if (sport.player1Name) {
-    const base = sport.player1Mobile
-      ? `Singles — ${sport.player1Name} · ${sport.player1Mobile}`
-      : `Singles — ${sport.player1Name}`
-    return `${base}${waitTag}`
-  }
+  if (player) return `Singles — ${player}${waitTag}`
   return `Singles${waitTag}`
 }
 
@@ -121,7 +131,7 @@ function buildSelectedSports(): SelectedSport[] {
     const format = needsFormat(sportId)
       ? (state.formats[sportId] ?? 'single')
       : 'single'
-    const players = needsFormat(sportId)
+    const players = needsPlayerDetails(sportId)
       ? state.doublesPlayers[sportId]
       : undefined
     const player1Name = players?.player1.fullName.trim()
@@ -238,10 +248,10 @@ function validatePlayer1(
   const p1Mobile = normalizeMobile(players?.player1.mobile ?? '')
   const errors: Partial<DoublesPlayer> = {}
 
-  if (!p1Name) errors.fullName = 'Player 1 full name is required'
-  if (!p1Mobile) errors.mobile = 'Player 1 mobile number is required'
+  if (!p1Name) errors.fullName = 'Full name is required'
+  if (!p1Mobile) errors.mobile = 'Mobile number is required'
   else if (p1Mobile.length < 10) {
-    errors.mobile = 'Enter a valid 10-digit mobile for Player 1'
+    errors.mobile = 'Enter a valid 10-digit mobile number'
   }
 
   return Object.keys(errors).length > 0 ? errors : undefined
@@ -251,10 +261,14 @@ function validateFormats(): boolean {
   formatError = ''
   doublesErrors = {}
 
-  for (const id of sportsNeedingFormat()) {
-    if (!state.formats[id]) {
+  for (const id of sportsNeedingPlayerDetails()) {
+    if (needsFormat(id) && !state.formats[id]) {
       formatError = 'Select Single or Double for each racket sport'
       return false
+    }
+
+    if (needsPlayerDetailsOnly(id)) {
+      state.formats[id] = 'single'
     }
 
     const players = state.doublesPlayers[id]
@@ -272,14 +286,13 @@ function validateFormats(): boolean {
         p1MobileCheck,
         id,
         sportLabel(id),
-        state.gender,
       )
       if (conflict) {
         errors.player1 = { ...errors.player1, mobile: conflict }
       }
     }
 
-    if (state.formats[id] === 'double') {
+    if (needsFormat(id) && state.formats[id] === 'double') {
       const p1Name = players?.player1.fullName.trim() ?? ''
       const p1Mobile = normalizeMobile(players?.player1.mobile ?? '')
       const p2Name = players?.player2.fullName.trim() ?? ''
@@ -323,7 +336,6 @@ function validateFormats(): boolean {
           p2Mobile,
           id,
           sportLabel(id),
-          state.gender,
         )
         if (conflict) {
           errors.player2 = { ...errors.player2, mobile: conflict }
@@ -338,7 +350,7 @@ function validateFormats(): boolean {
 
   if (Object.keys(doublesErrors).length > 0) {
     formatError =
-      'Fix player details — a mobile may already be registered for this sport'
+      'Fix player details — full name and mobile are required, and a mobile may already be registered for this sport'
     return false
   }
 
@@ -354,7 +366,6 @@ function canSubmit(): { ok: boolean; message: string } {
     const existing = describeSportConflict(
       s,
       sportLabel(s.sportId),
-      state.gender,
       state.mobile,
     )
     if (existing) {
@@ -380,11 +391,16 @@ function goNext(): void {
       render()
       return
     }
-    const needing = sportsNeedingFormat()
+    const needing = sportsNeedingPlayerDetails()
     for (const id of Object.keys(state.formats) as SportId[]) {
       if (!needing.includes(id)) {
         delete state.formats[id]
         delete state.doublesPlayers[id]
+      }
+    }
+    for (const id of needing) {
+      if (needsPlayerDetailsOnly(id)) {
+        state.formats[id] = 'single'
       }
     }
     step = needing.length > 0 ? 3 : 4
@@ -405,7 +421,7 @@ function goNext(): void {
 function goBack(): void {
   if (step === 2) step = 1
   else if (step === 3) step = 2
-  else if (step === 4) step = sportsNeedingFormat().length > 0 ? 3 : 2
+  else if (step === 4) step = sportsNeedingPlayerDetails().length > 0 ? 3 : 2
 
   sportError = ''
   formatError = ''
@@ -485,15 +501,19 @@ async function submit(): Promise<void> {
   }
 
   try {
+    const reference = createId()
+    const sports = buildSelectedSports()
     await saveRegistration({
-      id: createId(),
+      id: reference,
       fullName: state.fullName.trim(),
       mobile: normalizeMobile(state.mobile),
       location: state.location.trim(),
       gender: state.gender!,
-      sports: buildSelectedSports(),
+      sports,
       createdAt: new Date().toISOString(),
     })
+    lastReference = reference
+    lastRegisteredSports = sports
     step = 5
     render()
   } catch (error) {
@@ -519,6 +539,8 @@ function resetForm(): void {
   formatError = ''
   doublesErrors = {}
   submitError = ''
+  lastReference = ''
+  lastRegisteredSports = []
   step = 1
   render()
 }
@@ -689,36 +711,122 @@ function renderStep2(): string {
   `
 }
 
+function renderPlayerFields(
+  id: SportId,
+  players: DoublesPlayers,
+  errors: {
+    player1?: Partial<DoublesPlayer>
+    player2?: Partial<DoublesPlayer>
+  },
+  options: { showPlayer2: boolean; showOrganizerNotice: boolean },
+): string {
+  return `
+    <div class="partner-field">
+      <div class="player-block">
+        <p class="section-label" style="margin:0 0 0.55rem">Player details</p>
+        <div class="player-row">
+          <div class="field">
+            <label for="player1-name-${id}">Full Name</label>
+            <input id="player1-name-${id}" type="text"
+              data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="fullName"
+              value="${escapeAttr(players.player1.fullName)}"
+              placeholder="Full name" required />
+            ${errors.player1?.fullName ? `<span class="error">${errors.player1.fullName}</span>` : ''}
+          </div>
+          <div class="field">
+            <label for="player1-mobile-${id}">Mobile Number</label>
+            <input id="player1-mobile-${id}" type="tel" inputmode="numeric"
+              data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="mobile"
+              value="${escapeAttr(players.player1.mobile)}"
+              placeholder="Mobile number" maxlength="15" required />
+            ${errors.player1?.mobile ? `<span class="error">${escapeHtml(errors.player1.mobile)}</span>` : ''}
+          </div>
+        </div>
+      </div>
+
+      ${
+        options.showOrganizerNotice
+          ? `
+      <div class="organizer-notice" role="status">
+        <strong>Second player</strong>
+        <p>
+          We will provide you a second player. Please wait for our response.
+          You cannot choose which player you get — you must play with the partner
+          the organizer assigns for ${sportLabel(id)}.
+        </p>
+      </div>
+      `
+          : ''
+      }
+
+      ${
+        options.showPlayer2
+          ? `
+      <div class="player-block">
+        <p class="section-label" style="margin:0 0 0.55rem">Player 2</p>
+        <div class="player-row">
+          <div class="field">
+            <label for="player2-name-${id}">Full Name</label>
+            <input id="player2-name-${id}" type="text"
+              data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="fullName"
+              value="${escapeAttr(players.player2.fullName)}"
+              placeholder="Player 2 full name" />
+            ${errors.player2?.fullName ? `<span class="error">${errors.player2.fullName}</span>` : ''}
+          </div>
+          <div class="field">
+            <label for="player2-mobile-${id}">Mobile Number</label>
+            <input id="player2-mobile-${id}" type="tel" inputmode="numeric"
+              data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="mobile"
+              value="${escapeAttr(players.player2.mobile)}"
+              placeholder="Player 2 mobile number" maxlength="15" />
+            ${errors.player2?.mobile ? `<span class="error">${escapeHtml(errors.player2.mobile)}</span>` : ''}
+          </div>
+        </div>
+      </div>
+      `
+          : ''
+      }
+    </div>
+  `
+}
+
 function renderStep3(): string {
-  const needing = sportsNeedingFormat()
+  const needing = sportsNeedingPlayerDetails()
   const category = state.gender ? genderLabel(state.gender) : ''
+  const hasFormatSports = needing.some(needsFormat)
   return `
     <div class="fade-step">
-      <h2 class="step-title">Singles or Doubles</h2>
+      <h2 class="step-title">${hasFormatSports ? 'Format & player details' : 'Player details'}</h2>
       <p class="step-sub">
-        Choose Single or Doubles for each sport below.
-        ${category ? `Live ${escapeHtml(category)} slot counts update instantly over WebSocket.` : ''}
+        Full name and mobile are required for each sport.
+        ${hasFormatSports ? 'For racket sports, also choose Single or Doubles. ' : ''}
+        ${category ? `Live ${escapeHtml(category)} slot counts update instantly.` : ''}
       </p>
 
-      ${formatError ? `<div class="alert">${formatError}</div>` : ''}
+      ${formatError ? `<div class="alert">${escapeHtml(formatError)}</div>` : ''}
 
       ${needing
         .map((id) => {
-          const format = state.formats[id]
+          const playerOnly = needsPlayerDetailsOnly(id)
+          const format = playerOnly ? 'single' : state.formats[id]
           const isSingle = format === 'single'
           const isDouble = format === 'double'
-          const showPlayers = isSingle || isDouble
+          const showPlayers = playerOnly || isSingle || isDouble
           const players = state.doublesPlayers[id] ?? {
             player1: emptyDoublesPlayer(),
             player2: emptyDoublesPlayer(),
           }
           const errors = doublesErrors[id] ?? {}
           return `
-        <div class="format-card ${isSingle ? 'is-single-mode' : ''}">
+        <div class="format-card ${isSingle || playerOnly ? 'is-single-mode' : ''}">
           <div class="format-card-header">
             <h3>${sportLabel(id)}</h3>
             ${slotBadgeHtml(id)}
           </div>
+          ${
+            playerOnly
+              ? `<p class="step-sub" style="margin:0 0 0.85rem">Enter the player full name and mobile for ${sportLabel(id)}.</p>`
+              : `
           <div class="format-options">
             <button type="button"
               class="choice ${isSingle ? 'is-selected' : ''}"
@@ -735,76 +843,14 @@ function renderStep3(): string {
               <span class="choice-meta">Choose your partner</span>
             </button>
           </div>
+          `
+          }
           ${
             showPlayers
-              ? `
-            <div class="partner-field">
-              <div class="player-block">
-                <p class="section-label" style="margin:0 0 0.55rem">Player 1</p>
-                <div class="player-row">
-                  <div class="field">
-                    <label for="player1-name-${id}">Full Name</label>
-                    <input id="player1-name-${id}" type="text"
-                      data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="fullName"
-                      value="${escapeAttr(players.player1.fullName)}"
-                      placeholder="Player 1 full name" />
-                    ${errors.player1?.fullName ? `<span class="error">${errors.player1.fullName}</span>` : ''}
-                  </div>
-                  <div class="field">
-                    <label for="player1-mobile-${id}">Mobile Number</label>
-                    <input id="player1-mobile-${id}" type="tel" inputmode="numeric"
-                      data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="mobile"
-                      value="${escapeAttr(players.player1.mobile)}"
-                      placeholder="Player 1 mobile number" maxlength="15" />
-                    ${errors.player1?.mobile ? `<span class="error">${errors.player1.mobile}</span>` : ''}
-                  </div>
-                </div>
-              </div>
-
-              ${
-                isSingle
-                  ? `
-              <div class="organizer-notice" role="status">
-                <strong>Second player</strong>
-                <p>
-                  We will provide you a second player. Please wait for our response.
-                  You cannot choose which player you get — you must play with the partner
-                  the organizer assigns for ${sportLabel(id)}.
-                </p>
-              </div>
-              `
-                  : ''
-              }
-
-              ${
-                isDouble
-                  ? `
-              <div class="player-block">
-                <p class="section-label" style="margin:0 0 0.55rem">Player 2</p>
-                <div class="player-row">
-                  <div class="field">
-                    <label for="player2-name-${id}">Full Name</label>
-                    <input id="player2-name-${id}" type="text"
-                      data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="fullName"
-                      value="${escapeAttr(players.player2.fullName)}"
-                      placeholder="Player 2 full name" />
-                    ${errors.player2?.fullName ? `<span class="error">${errors.player2.fullName}</span>` : ''}
-                  </div>
-                  <div class="field">
-                    <label for="player2-mobile-${id}">Mobile Number</label>
-                    <input id="player2-mobile-${id}" type="tel" inputmode="numeric"
-                      data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="mobile"
-                      value="${escapeAttr(players.player2.mobile)}"
-                      placeholder="Player 2 mobile number" maxlength="15" />
-                    ${errors.player2?.mobile ? `<span class="error">${errors.player2.mobile}</span>` : ''}
-                  </div>
-                </div>
-              </div>
-              `
-                  : ''
-              }
-            </div>
-          `
+              ? renderPlayerFields(id, players, errors, {
+                  showPlayer2: isDouble && !playerOnly,
+                  showOrganizerNotice: isSingle && !playerOnly,
+                })
               : ''
           }
         </div>
@@ -824,7 +870,6 @@ function reviewBadge(sport: SelectedSport): string {
   const existing = describeSportConflict(
     sport,
     sportLabel(sport.sportId),
-    state.gender,
     state.mobile,
   )
   if (existing) {
@@ -863,7 +908,6 @@ function renderStep4(): string {
             const existing = describeSportConflict(
               s,
               sportLabel(s.sportId),
-              state.gender,
               state.mobile,
             )
             const blocked = !!existing
@@ -899,13 +943,25 @@ function renderStep4(): string {
 }
 
 function renderStep5(): string {
-  const sports = buildSelectedSports()
+  const sports = lastRegisteredSports.length
+    ? lastRegisteredSports
+    : buildSelectedSports()
   const category = state.gender ? genderLabel(state.gender) : ''
   return `
     <div class="fade-step success-screen">
       <div class="success-icon">✓</div>
-      <h2>You're in!</h2>
+      <h2>You're registered!</h2>
       <p>Registration saved for ${escapeHtml(state.fullName.trim())}${category ? ` (${escapeHtml(category)})` : ''}.</p>
+
+      <div class="reference-box" role="status">
+        <span class="reference-label">Your reference number</span>
+        <strong class="reference-code" id="registration-reference">${escapeHtml(lastReference)}</strong>
+        <p class="reference-hint">Save this number — use it if you contact the organizers about your registration.</p>
+        <button type="button" class="btn btn-ghost reference-copy" data-action="copy-ref">
+          Copy reference
+        </button>
+      </div>
+
       <div class="review-list" style="text-align:left;margin-bottom:1.25rem">
         ${sports
           .map((s) => {
@@ -1009,7 +1065,6 @@ function checkPlayerMobileConflict(
     normalized,
     sportId,
     sportLabel(sportId),
-    state.gender,
   )
 
   if (conflict) {
@@ -1025,9 +1080,9 @@ function checkPlayerMobileConflict(
 
 /** On focus-out, re-check every player mobile on every sport card */
 function checkAllPlayerMobileConflictsOnPage(): void {
-  for (const sportId of sportsNeedingFormat()) {
+  for (const sportId of sportsNeedingPlayerDetails()) {
     checkPlayerMobileConflict(sportId, 'player1')
-    if (state.formats[sportId] === 'double') {
+    if (needsFormat(sportId) && state.formats[sportId] === 'double') {
       checkPlayerMobileConflict(sportId, 'player2')
     }
   }
@@ -1093,7 +1148,14 @@ function bindEvents(): void {
       else if (action === 'back') goBack()
       else if (action === 'submit') submit()
       else if (action === 'reset') resetForm()
-      else if (action === 'gender' && btn.dataset.gender) {
+      else if (action === 'copy-ref' && lastReference) {
+        void navigator.clipboard.writeText(lastReference).then(() => {
+          btn.textContent = 'Copied!'
+          window.setTimeout(() => {
+            btn.textContent = 'Copy reference'
+          }, 1600)
+        })
+      } else if (action === 'gender' && btn.dataset.gender) {
         setGender(btn.dataset.gender as Gender)
       } else if (action === 'primary' && btn.dataset.sport) {
         setPrimary(btn.dataset.sport as SportId)

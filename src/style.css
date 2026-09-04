@@ -665,6 +665,47 @@ body::before {
   margin: 0.5rem 0 1.5rem;
 }
 
+.reference-box {
+  margin: 0 auto 1.5rem;
+  max-width: 420px;
+  padding: 1.1rem 1.25rem 1.2rem;
+  border-radius: 16px;
+  border: 1.5px solid rgba(212, 160, 23, 0.45);
+  background:
+    linear-gradient(180deg, rgba(212, 160, 23, 0.14), rgba(255, 255, 255, 0.7));
+  text-align: center;
+}
+
+.reference-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.45rem;
+}
+
+.reference-code {
+  display: block;
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 5vw, 2.35rem);
+  letter-spacing: 0.08em;
+  color: var(--navy);
+  line-height: 1.1;
+  user-select: all;
+}
+
+.reference-hint {
+  margin: 0.65rem 0 0.85rem !important;
+  font-size: 0.85rem !important;
+  color: var(--muted);
+}
+
+.reference-copy {
+  margin: 0 auto;
+}
+
 .fade-step {
   animation: fade-step 0.35s ease both;
 }
@@ -876,6 +917,16 @@ body::before {
 .admin-table .col-num {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.admin-table .col-ref code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--navy);
+  background: rgba(11, 31, 58, 0.06);
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
 }
 
 .admin-table .col-when {

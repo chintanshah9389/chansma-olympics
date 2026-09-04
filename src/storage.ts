@@ -127,12 +127,12 @@ function entryPlayerMobiles(entry: SelectedSport, regMobile: string): string[] {
 
 /**
  * If any player mobile is already registered for this sport
- * (same gender), return that existing entry.
+ * (any gender — same number cannot enter the same sport twice),
+ * return that existing entry.
  */
 export function findExistingSportEntryByPlayers(
   playerMobiles: string[],
   sportId: SportId,
-  gender?: Gender | null,
 ): { registration: Registration; entry: SelectedSport; matchedMobile: string } | null {
   const targets = [
     ...new Set(playerMobiles.map(normalizeMobile).filter(Boolean)),
@@ -140,7 +140,6 @@ export function findExistingSportEntryByPlayers(
   if (targets.length === 0) return null
 
   for (const reg of getRegistrations()) {
-    if (gender && reg.gender !== gender) continue
     const entry = reg.sports.find((s) => s.sportId === sportId)
     if (!entry) continue
 
@@ -167,7 +166,6 @@ function playerLabel(name?: string, mobile?: string): string {
 export function describeSportConflict(
   sport: SelectedSport,
   sportName: string,
-  gender?: Gender | null,
   contactMobile?: string,
 ): string | null {
   const mobiles: string[] = []
@@ -179,7 +177,7 @@ export function describeSportConflict(
     mobiles.push(contactMobile)
   }
 
-  const found = findExistingSportEntryByPlayers(mobiles, sport.sportId, gender)
+  const found = findExistingSportEntryByPlayers(mobiles, sport.sportId)
   if (!found) return null
 
   return formatConflictMessage(found.entry, found.matchedMobile, sportName, found.registration)
@@ -190,9 +188,8 @@ export function describePlayerMobileConflict(
   mobile: string,
   sportId: SportId,
   sportName: string,
-  gender?: Gender | null,
 ): string | null {
-  const found = findExistingSportEntryByPlayers([mobile], sportId, gender)
+  const found = findExistingSportEntryByPlayers([mobile], sportId)
   if (!found) return null
   return formatConflictMessage(
     found.entry,
@@ -236,17 +233,28 @@ function formatConflictMessage(
           : ''
   }
 
+  const genderTag =
+    registration.gender === 'female' ? ' (Female)' : ' (Male)'
+
   if (entry.format === 'double' && partnerName) {
-    return `This mobile number is registered as ${userName} for ${sportName} as Doubles with partner ${partnerName}.`
+    return `Already registered: ${userName} for ${sportName} as Doubles with partner ${partnerName}${genderTag}.`
   }
 
   if (entry.format === 'double') {
-    return `This mobile number is registered as ${userName} for ${sportName} as Doubles.`
+    return `Already registered: ${userName} for ${sportName} as Doubles${genderTag}.`
   }
 
-  return `This mobile number is registered as ${userName} for ${sportName} as Singles.`
+  if (entry.sportId === 'football') {
+    return `Already registered: ${userName} for ${sportName}${genderTag}.`
+  }
+
+  return `Already registered: ${userName} for ${sportName} as Singles${genderTag}.`
 }
 
 export function createId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = ''
+  const bytes = crypto.getRandomValues(new Uint8Array(6))
+  for (const b of bytes) code += alphabet[b % alphabet.length]
+  return `CHN-${code}`
 }

@@ -64,6 +64,16 @@ export function needsFormat(id: SportId): boolean {
   return SPORTS[id].needsFormat
 }
 
+/** Singles/team sports that still require player name + mobile (no Single/Double UI) */
+export function needsPlayerDetailsOnly(id: SportId): boolean {
+  return id === 'football' || id === 'carrom' || id === 'chess'
+}
+
+/** Any sport that shows on the format / player-details step */
+export function needsPlayerDetails(id: SportId): boolean {
+  return needsFormat(id) || needsPlayerDetailsOnly(id)
+}
+
 export function sportCapacity(id: SportId, gender: Gender): number {
   return gender === 'male'
     ? SPORTS[id].capacityMale
