@@ -12,6 +12,13 @@ import {
   sportLabel,
   type SportCapacities,
 } from './sports'
+import {
+  iconArrowLeft,
+  iconDownload,
+  iconRefresh,
+  sportIcon,
+  withIcon,
+} from './icons'
 import type { Gender, Registration, SelectedSport, SportId, SportSeatStatus } from './types'
 import { onRealtimeUpdate } from './realtime'
 
@@ -284,7 +291,7 @@ export function renderAdmin(root: HTMLElement): void {
     activeEl instanceof HTMLInputElement ? activeEl.selectionStart : null
 
   root.innerHTML = `
-    <a class="nav-corner nav-corner-left" href="#/">← Form</a>
+    <a class="nav-corner nav-corner-left" href="#/">${iconArrowLeft()} Form</a>
 
     <div class="shell shell-admin">
       <header class="brand brand-admin">
@@ -340,7 +347,7 @@ export function renderAdmin(root: HTMLElement): void {
                   const caps = ensureCapacityDraft()[id]
                   return `
                   <tr>
-                    <th scope="row">${sportLabel(id)}</th>
+                    <th scope="row"><span class="sport-heading">${sportIcon(id)} ${sportLabel(id)}</span></th>
                     <td>
                       <input type="number" min="0" step="1"
                         id="cap-male-${id}"
@@ -376,8 +383,8 @@ export function renderAdmin(root: HTMLElement): void {
               value="${escapeHtml(searchQuery)}"
               autocomplete="off"
             />
-            <button type="button" class="btn btn-ghost" data-admin="refresh">Refresh</button>
-            <button type="button" class="btn btn-ghost" data-admin="csv">Export CSV</button>
+            <button type="button" class="btn btn-ghost" data-admin="refresh">${withIcon(iconRefresh(), 'Refresh')}</button>
+            <button type="button" class="btn btn-ghost" data-admin="csv">${withIcon(iconDownload(), 'Export CSV')}</button>
             ${
               filtersActive
                 ? `<button type="button" class="btn btn-ghost" data-admin="clear">Clear filters</button>`

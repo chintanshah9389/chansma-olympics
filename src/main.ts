@@ -27,6 +27,25 @@ import {
   onRealtimeUpdate,
 } from './realtime'
 import { destroyAdmin, isAdminRoute, renderAdmin } from './admin'
+import { GU, bi, biText } from './i18n'
+import {
+  iconAdmin,
+  iconArrowLeft,
+  iconArrowRight,
+  iconCheck,
+  iconCopy,
+  iconDouble,
+  iconFemale,
+  iconLive,
+  iconMale,
+  iconPhone,
+  iconPin,
+  iconSingle,
+  iconSpark,
+  iconUser,
+  sportIcon,
+  withIcon,
+} from './icons'
 import type {
   DoublesPlayer,
   DoublesPlayers,
@@ -38,7 +57,20 @@ import type {
   WizardStep,
 } from './types'
 
-const STEP_LABELS = ['Details', 'Sports', 'Format', 'Review'] as const
+const STEP_LABELS = [
+  { en: 'Details', gu: GU.steps.details },
+  { en: 'Sports', gu: GU.steps.sports },
+  { en: 'Format', gu: GU.steps.format },
+  { en: 'Review', gu: GU.steps.review },
+] as const
+
+function sportBi(id: SportId): string {
+  return bi(sportLabel(id), GU.sports[id] ?? sportLabel(id))
+}
+
+function sportBiText(id: SportId): string {
+  return biText(sportLabel(id), GU.sports[id] ?? sportLabel(id))
+}
 
 const emptyDoublesPlayer = (): DoublesPlayer => ({ fullName: '', mobile: '' })
 
@@ -167,8 +199,8 @@ function validateDetails(): boolean {
   const location = state.location.trim()
 
   // Step 1 is informational — mobile is collected but not validated here.
-  if (!name) detailErrors.fullName = 'Full name is required'
-  if (!location) detailErrors.location = 'Location is required'
+  if (!name) detailErrors.fullName = biText('Full name is required', GU.errFullName)
+  if (!location) detailErrors.location = biText('Location is required', GU.errLocation)
 
   return Object.keys(detailErrors).length === 0
 }
@@ -186,13 +218,15 @@ function slotBadgeHtml(sportId: SportId): string {
   const used = countSportRegistrations(sportId, state.gender)
   const waiting = countWaitingRegistrations(sportId, state.gender)
   const total = sportCapacity(sportId, state.gender)
-  const category = state.gender === 'male' ? 'Men' : 'Women'
+  const categoryEn = state.gender === 'male' ? 'Men' : 'Women'
+  const categoryGu = state.gender === 'male' ? GU.men : GU.women
   if (left <= 0) {
-    return `<span class="slot-live is-full" data-slot-sport="${sportId}">${category}: Full · Waiting list (${waiting} waiting · ${used}/${total})</span>`
+    return `<span class="slot-live is-full" data-slot-sport="${sportId}"><span class="slot-pulse"></span>${iconLive()} ${biText(`${categoryEn}: Full · Waiting (${waiting} · ${used}/${total})`, `${categoryGu}: ${GU.fullWaiting} (${waiting} · ${used}/${total})`)}</span>`
   }
   const cls = left <= 3 ? 'is-low' : ''
-  const waitNote = waiting > 0 ? ` · ${waiting} waiting` : ''
-  return `<span class="slot-live ${cls}" data-slot-sport="${sportId}">${category}: ${left} slot${left === 1 ? '' : 's'} left (${used}/${total})${waitNote}</span>`
+  const waitNoteEn = waiting > 0 ? ` · ${waiting} waiting` : ''
+  const waitNoteGu = waiting > 0 ? ` · ${waiting} વેઇટિંગ` : ''
+  return `<span class="slot-live ${cls}" data-slot-sport="${sportId}"><span class="slot-pulse"></span>${iconLive()} ${biText(`${categoryEn}: ${left} left (${used}/${total})${waitNoteEn}`, `${categoryGu}: ${left} ${GU.left} (${used}/${total})${waitNoteGu}`)}</span>`
 }
 
 function updateLiveSlotBadges(): void {
@@ -200,17 +234,13 @@ function updateLiveSlotBadges(): void {
   app.querySelectorAll<HTMLElement>('[data-slot-sport]').forEach((el) => {
     const id = el.dataset.slotSport as SportId
     if (!id) return
-    const left = slotsFor(id)
-    const used = countSportRegistrations(id, state.gender!)
-    const waiting = countWaitingRegistrations(id, state.gender!)
-    const total = sportCapacity(id, state.gender!)
-    const category = state.gender === 'male' ? 'Men' : 'Women'
-    el.classList.toggle('is-full', left <= 0)
-    el.classList.toggle('is-low', left > 0 && left <= 3)
-    el.textContent =
-      left <= 0
-        ? `${category}: Full · Waiting list (${waiting} waiting · ${used}/${total})`
-        : `${category}: ${left} slot${left === 1 ? '' : 's'} left (${used}/${total})${waiting > 0 ? ` · ${waiting} waiting` : ''}`
+    const next = document.createElement('div')
+    next.innerHTML = slotBadgeHtml(id)
+    const badge = next.firstElementChild as HTMLElement | null
+    if (!badge) return
+    badge.classList.add('is-updating')
+    el.replaceWith(badge)
+    window.setTimeout(() => badge.classList.remove('is-updating'), 600)
   })
 }
 
@@ -225,18 +255,21 @@ function stopLiveSlotUpdates(): void {
 function validateSports(): boolean {
   sportError = ''
   if (!state.gender) {
-    sportError = 'Select Male or Female first'
+    sportError = biText('Select Male or Female first', GU.errSelectGender)
     return false
   }
   if (!state.primarySport) {
     sportError =
       state.gender === 'female'
-        ? 'Choose Pickleball as the main sport'
-        : 'Choose Football or Pickleball'
+        ? biText('Choose Pickleball as the main sport', GU.errPickleballFemale)
+        : biText('Choose Football or Pickleball', GU.errFootballOrPickle)
     return false
   }
   if (state.secondarySports.length > 2) {
-    sportError = 'You can choose a maximum of 2 additional sports'
+    sportError = biText(
+      'You can choose a maximum of 2 additional sports',
+      GU.errMaxExtra,
+    )
     return false
   }
   return true
@@ -249,10 +282,10 @@ function validatePlayer1(
   const p1Mobile = normalizeMobile(players?.player1.mobile ?? '')
   const errors: Partial<DoublesPlayer> = {}
 
-  if (!p1Name) errors.fullName = 'Full name is required'
-  if (!p1Mobile) errors.mobile = 'Mobile number is required'
+  if (!p1Name) errors.fullName = biText('Full name is required', GU.errFullName)
+  if (!p1Mobile) errors.mobile = biText('Mobile number is required', GU.errMobileRequired)
   else if (p1Mobile.length < 10) {
-    errors.mobile = 'Enter a valid 10-digit mobile number'
+    errors.mobile = biText('Enter a valid 10-digit mobile number', GU.errMobileValid)
   }
 
   return Object.keys(errors).length > 0 ? errors : undefined
@@ -264,7 +297,10 @@ function validateFormats(): boolean {
 
   for (const id of sportsNeedingPlayerDetails()) {
     if (needsFormat(id) && !state.formats[id]) {
-      formatError = 'Select Single or Double for each racket sport'
+      formatError = biText(
+        'Select Single or Double for each racket sport',
+        GU.errSelectFormat,
+      )
       return false
     }
 
@@ -300,17 +336,17 @@ function validateFormats(): boolean {
       const p2Mobile = normalizeMobile(players?.player2.mobile ?? '')
 
       if (!p2Name) {
-        errors.player2 = { ...errors.player2, fullName: 'Player 2 full name is required' }
+        errors.player2 = { ...errors.player2, fullName: biText('Player 2 full name is required', GU.errPlayer2Name) }
       }
       if (!p2Mobile) {
         errors.player2 = {
           ...errors.player2,
-          mobile: 'Player 2 mobile number is required',
+          mobile: biText('Player 2 mobile number is required', GU.errPlayer2Mobile),
         }
       } else if (p2Mobile.length < 10) {
         errors.player2 = {
           ...errors.player2,
-          mobile: 'Enter a valid 10-digit mobile for Player 2',
+          mobile: biText('Enter a valid 10-digit mobile for Player 2', GU.errPlayer2MobileValid),
         }
       }
 
@@ -321,14 +357,14 @@ function validateFormats(): boolean {
       ) {
         errors.player2 = {
           ...errors.player2,
-          fullName: 'Player 2 name must be different from Player 1',
+          fullName: biText('Player 2 name must be different from Player 1', GU.errNamesDifferent),
         }
       }
 
       if (p1Mobile && p2Mobile && p1Mobile === p2Mobile) {
         errors.player2 = {
           ...errors.player2,
-          mobile: 'Player 2 mobile must be different from Player 1',
+          mobile: biText('Player 2 mobile must be different from Player 1', GU.errMobilesDifferent),
         }
       }
 
@@ -350,8 +386,10 @@ function validateFormats(): boolean {
   }
 
   if (Object.keys(doublesErrors).length > 0) {
-    formatError =
-      'Fix player details — full name and mobile are required, and a mobile may already be registered for this sport'
+    formatError = biText(
+      'Fix player details — full name and mobile are required, and a mobile may already be registered for this sport',
+      GU.errFixPlayers,
+    )
     return false
   }
 
@@ -360,7 +398,7 @@ function validateFormats(): boolean {
 
 function canSubmit(): { ok: boolean; message: string } {
   if (!state.gender) {
-    return { ok: false, message: 'Select Male or Female before submitting.' }
+    return { ok: false, message: biText('Select Male or Female before submitting.', GU.errSelectGenderSubmit) }
   }
   const sports = buildSelectedSports()
   for (const s of sports) {
@@ -449,12 +487,12 @@ function setGender(gender: Gender): void {
 
 function setPrimary(id: SportId): void {
   if (!state.gender) {
-    sportError = 'Select Male or Female first'
+    sportError = biText('Select Male or Female first', GU.errSelectGender)
     render()
     return
   }
   if (state.gender === 'female' && id === 'football') {
-    sportError = 'Football is not available for Female'
+    sportError = biText('Football is not available for Female', GU.errFootballFemale)
     render()
     return
   }
@@ -465,7 +503,7 @@ function setPrimary(id: SportId): void {
 
 function toggleSecondary(id: SportId): void {
   if (!state.gender) {
-    sportError = 'Select Male or Female first'
+    sportError = biText('Select Male or Female first', GU.errSelectGender)
     render()
     return
   }
@@ -520,8 +558,13 @@ async function submit(): Promise<void> {
   } catch (error) {
     submitError =
       error instanceof Error
-        ? error.message
-        : 'Could not save registration. Check API / database connection.'
+        ? error.message.includes(' / ')
+          ? error.message
+          : biText(error.message, GU.errSaveFailed)
+        : biText(
+            'Could not save registration. Check API / database connection.',
+            GU.errSaveFailed,
+          )
     render()
   }
 }
@@ -556,18 +599,21 @@ function progressIndex(): number {
 function renderProgress(): string {
   const active = progressIndex()
   return `
-    <div class="progress" aria-hidden="true">
-      ${STEP_LABELS.map((_, i) => `
-        <div class="progress-step ${i < active ? 'is-done' : ''} ${i === active ? 'is-active' : ''}">
-          <span></span>
-        </div>
-      `).join('')}
-    </div>
-    <div class="progress-labels">
-      ${STEP_LABELS.map((label, i) => `
-        <span class="${i === active ? 'is-active' : ''}">${label}</span>
-      `).join('')}
-    </div>
+    <ol class="progress-track">
+      ${STEP_LABELS.map((label, i) => {
+        const stateClass =
+          i < active ? 'is-done' : i === active ? 'is-active' : 'is-todo'
+        return `
+        <li class="progress-item ${stateClass}">
+          <div class="progress-item-top">
+            <span class="progress-dot" aria-hidden="true">${i < active ? '✓' : i + 1}</span>
+            ${i < STEP_LABELS.length - 1 ? '<span class="progress-line" aria-hidden="true"><span></span></span>' : ''}
+          </div>
+          <span class="progress-label">${bi(label.en, label.gu)}</span>
+        </li>
+      `
+      }).join('')}
+    </ol>
   `
 }
 
@@ -585,9 +631,15 @@ function renderChoice(
       : 0
   let meta = genderSelected
     ? slots !== null && slots > 0
-      ? `${slots} ${state.gender === 'male' ? 'men' : 'women'} slot${slots === 1 ? '' : 's'} left`
-      : `Full — join waiting${waiting ? ` (${waiting})` : ''}`
-    : 'Select gender first'
+      ? biText(
+          `${slots} ${state.gender === 'male' ? 'men' : 'women'} slot${slots === 1 ? '' : 's'} left`,
+          `${slots} ${state.gender === 'male' ? GU.men : GU.women} ${GU.slotsLeft}`,
+        )
+      : biText(
+          `Full — join waiting${waiting ? ` (${waiting})` : ''}`,
+          `${GU.joinWaiting}${waiting ? ` (${waiting})` : ''}`,
+        )
+    : biText('Select gender first', GU.selectGenderFirst)
   let metaClass = 'choice-meta'
 
   if (genderSelected && slots !== null && slots <= 0) {
@@ -597,13 +649,14 @@ function renderChoice(
   return `
     <button
       type="button"
-      class="choice ${selected ? 'is-selected' : ''}"
+      class="choice choice-sport ${selected ? 'is-selected' : ''}"
       ${disabled || !genderSelected ? 'disabled' : ''}
       data-action="${actionAttr}"
       data-sport="${id}"
     >
+      <span class="choice-icon-wrap">${sportIcon(id)}</span>
       <span class="choice-check" aria-hidden="true"></span>
-      <span class="choice-title">${sportLabel(id)}</span>
+      <span class="choice-title">${sportBi(id)}</span>
       <span class="${metaClass}">${meta}</span>
     </button>
   `
@@ -613,33 +666,42 @@ function renderStep1(): string {
   const apiError = getStorageError()
   return `
     <div class="fade-step">
-      <h2 class="step-title">Enter your details</h2>
-      <p class="step-sub">Basic information only — mobile is not validated on this step.</p>
+      <h2 class="step-title"><span class="step-title-icon">${iconUser()}</span> ${bi('Enter your details', GU.detailsTitle)}</h2>
+      <p class="step-sub">${bi('Basic information only — mobile is not validated on this step.', GU.detailsSub)}</p>
 
-      ${apiError ? `<div class="alert">Database/API: ${escapeHtml(apiError)}. Start the API with DATABASE_URL set.</div>` : ''}
+      ${apiError ? `<div class="alert">${escapeHtml(apiError)}</div>` : ''}
 
-      <div class="field">
-        <label for="fullName">Full Name</label>
-        <input id="fullName" name="fullName" type="text" autocomplete="name"
-          value="${escapeAttr(state.fullName)}" placeholder="e.g. Rahul Sharma" />
-        ${detailErrors.fullName ? `<span class="error">${detailErrors.fullName}</span>` : ''}
+      <div class="field field-icon">
+        <label for="fullName">${bi('Full Name', GU.fullName)}</label>
+        <div class="input-wrap">
+          ${iconUser()}
+          <input id="fullName" name="fullName" type="text" autocomplete="name"
+            value="${escapeAttr(state.fullName)}" placeholder="${escapeAttr(biText('e.g. Rahul Sharma', GU.placeholderName))}" />
+        </div>
+        ${detailErrors.fullName ? `<span class="error">${escapeHtml(detailErrors.fullName)}</span>` : ''}
       </div>
 
-      <div class="field">
-        <label for="mobile">Mobile Number</label>
-        <input id="mobile" name="mobile" type="tel" inputmode="numeric" autocomplete="tel"
-          value="${escapeAttr(state.mobile)}" placeholder="Mobile number" maxlength="15" />
+      <div class="field field-icon">
+        <label for="mobile">${bi('Mobile Number', GU.mobile)}</label>
+        <div class="input-wrap">
+          ${iconPhone()}
+          <input id="mobile" name="mobile" type="tel" inputmode="numeric" autocomplete="tel"
+            value="${escapeAttr(state.mobile)}" placeholder="${escapeAttr(biText('Mobile number', GU.placeholderMobile))}" maxlength="15" />
+        </div>
       </div>
 
-      <div class="field">
-        <label for="location">Location</label>
-        <input id="location" name="location" type="text" autocomplete="address-level2"
-          value="${escapeAttr(state.location)}" placeholder="City / Area" />
-        ${detailErrors.location ? `<span class="error">${detailErrors.location}</span>` : ''}
+      <div class="field field-icon">
+        <label for="location">${bi('Location', GU.location)}</label>
+        <div class="input-wrap">
+          ${iconPin()}
+          <input id="location" name="location" type="text" autocomplete="address-level2"
+            value="${escapeAttr(state.location)}" placeholder="${escapeAttr(biText('City / Area', GU.placeholderLocation))}" />
+        </div>
+        ${detailErrors.location ? `<span class="error">${escapeHtml(detailErrors.location)}</span>` : ''}
       </div>
 
       <div class="actions">
-        <button type="button" class="btn btn-primary" data-action="next">Continue</button>
+        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
       </div>
     </div>
   `
@@ -648,36 +710,38 @@ function renderStep1(): string {
 function renderStep2(): string {
   return `
     <div class="fade-step">
-      <h2 class="step-title">Select sports</h2>
-      <p class="step-sub">Choose Male or Female first — men’s and women’s tournaments have separate slot counts.</p>
+      <h2 class="step-title">${bi('Select sports', GU.sportsTitle)}</h2>
+      <p class="step-sub">${bi('Choose Male or Female first — men’s and women’s tournaments have separate slot counts.', GU.sportsSub)}</p>
 
-      ${sportError ? `<div class="alert">${sportError}</div>` : ''}
+      ${sportError ? `<div class="alert">${escapeHtml(sportError)}</div>` : ''}
 
-      <div class="section-label">Gender — choose one</div>
-      <p class="section-hint">Men’s and Women’s tournaments are counted separately</p>
+      <div class="section-label">${bi('Gender — choose one', GU.genderLabel)}</div>
+      <p class="section-hint">${bi('Men’s and Women’s tournaments are counted separately', GU.genderHint)}</p>
       <div class="choice-grid">
         <button type="button"
-          class="choice ${state.gender === 'male' ? 'is-selected' : ''}"
+          class="choice choice-gender ${state.gender === 'male' ? 'is-selected' : ''}"
           data-action="gender" data-gender="male">
+          <span class="choice-icon-wrap">${iconMale()}</span>
           <span class="choice-check" aria-hidden="true"></span>
-          <span class="choice-title">Male</span>
-          <span class="choice-meta">Men’s tournament</span>
+          <span class="choice-title">${bi('Male', GU.male)}</span>
+          <span class="choice-meta">${bi('Men’s tournament', GU.maleMeta)}</span>
         </button>
         <button type="button"
-          class="choice ${state.gender === 'female' ? 'is-selected' : ''}"
+          class="choice choice-gender ${state.gender === 'female' ? 'is-selected' : ''}"
           data-action="gender" data-gender="female">
+          <span class="choice-icon-wrap">${iconFemale()}</span>
           <span class="choice-check" aria-hidden="true"></span>
-          <span class="choice-title">Female</span>
-          <span class="choice-meta">Women’s tournament</span>
+          <span class="choice-title">${bi('Female', GU.female)}</span>
+          <span class="choice-meta">${bi('Women’s tournament', GU.femaleMeta)}</span>
         </button>
       </div>
 
-      <div class="section-label">Main sport — choose one</div>
+      <div class="section-label">${bi('Main sport — choose one', GU.mainSport)}</div>
       <p class="section-hint">
         ${
           state.gender === 'female'
-            ? 'Pickleball (Football is Male only)'
-            : 'Football or Pickleball'
+            ? bi('Pickleball (Football is Male only)', GU.mainHintFemale)
+            : bi('Football or Pickleball', GU.mainHintMale)
         }
       </p>
       <div class="choice-grid">
@@ -688,8 +752,8 @@ function renderStep2(): string {
           .join('')}
       </div>
 
-      <div class="section-label">Additional sports — optional (max 2)</div>
-      <p class="section-hint">Carrom, Chess, Table Tennis, Badminton — skip or pick up to 2</p>
+      <div class="section-label">${bi('Additional sports — optional (max 2)', GU.extraSports)}</div>
+      <p class="section-hint">${bi('Carrom, Chess, Table Tennis, Badminton — skip or pick up to 2', GU.extraHint)}</p>
       <div class="choice-grid cols-3">
         ${SECONDARY_SPORTS.map((id) => {
           const atLimit =
@@ -705,8 +769,8 @@ function renderStep2(): string {
       </div>
 
       <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="back">Back</button>
-        <button type="button" class="btn btn-primary" data-action="next">Continue</button>
+        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
+        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
       </div>
     </div>
   `
@@ -724,22 +788,22 @@ function renderPlayerFields(
   return `
     <div class="partner-field">
       <div class="player-block">
-        <p class="section-label" style="margin:0 0 0.55rem">Player details</p>
+        <p class="section-label" style="margin:0 0 0.55rem">${bi('Player details', GU.playerDetails)}</p>
         <div class="player-row">
           <div class="field">
-            <label for="player1-name-${id}">Full Name</label>
+            <label for="player1-name-${id}">${bi('Full Name', GU.fullName)}</label>
             <input id="player1-name-${id}" type="text"
               data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="fullName"
               value="${escapeAttr(players.player1.fullName)}"
-              placeholder="Full name" required />
-            ${errors.player1?.fullName ? `<span class="error">${errors.player1.fullName}</span>` : ''}
+              placeholder="${escapeAttr(biText('Full name', GU.placeholderName))}" required />
+            ${errors.player1?.fullName ? `<span class="error">${escapeHtml(errors.player1.fullName)}</span>` : ''}
           </div>
           <div class="field">
-            <label for="player1-mobile-${id}">Mobile Number</label>
+            <label for="player1-mobile-${id}">${bi('Mobile Number', GU.mobile)}</label>
             <input id="player1-mobile-${id}" type="tel" inputmode="numeric"
               data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="mobile"
               value="${escapeAttr(players.player1.mobile)}"
-              placeholder="Mobile number" maxlength="15" required />
+              placeholder="${escapeAttr(biText('Mobile number', GU.placeholderMobile))}" maxlength="15" required />
             ${errors.player1?.mobile ? `<span class="error">${escapeHtml(errors.player1.mobile)}</span>` : ''}
           </div>
         </div>
@@ -749,11 +813,12 @@ function renderPlayerFields(
         options.showOrganizerNotice
           ? `
       <div class="organizer-notice" role="status">
-        <strong>Second player</strong>
+        <strong>${bi('Second player', GU.organizerTitle)}</strong>
         <p>
-          We will provide you a second player. Please wait for our response.
-          You cannot choose which player you get — you must play with the partner
-          the organizer assigns for ${sportLabel(id)}.
+          ${bi(
+            `We will provide you a second player. Please wait for our response. You cannot choose which player you get — you must play with the partner the organizer assigns for ${sportLabel(id)}.`,
+            GU.organizerBody(sportBiText(id)),
+          )}
         </p>
       </div>
       `
@@ -764,22 +829,22 @@ function renderPlayerFields(
         options.showPlayer2
           ? `
       <div class="player-block">
-        <p class="section-label" style="margin:0 0 0.55rem">Player 2</p>
+        <p class="section-label" style="margin:0 0 0.55rem">${bi('Player 2', GU.player2)}</p>
         <div class="player-row">
           <div class="field">
-            <label for="player2-name-${id}">Full Name</label>
+            <label for="player2-name-${id}">${bi('Full Name', GU.fullName)}</label>
             <input id="player2-name-${id}" type="text"
               data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="fullName"
               value="${escapeAttr(players.player2.fullName)}"
-              placeholder="Player 2 full name" />
-            ${errors.player2?.fullName ? `<span class="error">${errors.player2.fullName}</span>` : ''}
+              placeholder="${escapeAttr(biText('Player 2 full name', 'ખેલાડી ૨ પૂરું નામ'))}" />
+            ${errors.player2?.fullName ? `<span class="error">${escapeHtml(errors.player2.fullName)}</span>` : ''}
           </div>
           <div class="field">
-            <label for="player2-mobile-${id}">Mobile Number</label>
+            <label for="player2-mobile-${id}">${bi('Mobile Number', GU.mobile)}</label>
             <input id="player2-mobile-${id}" type="tel" inputmode="numeric"
               data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="mobile"
               value="${escapeAttr(players.player2.mobile)}"
-              placeholder="Player 2 mobile number" maxlength="15" />
+              placeholder="${escapeAttr(biText('Player 2 mobile number', 'ખેલાડી ૨ મોબાઇલ નંબર'))}" maxlength="15" />
             ${errors.player2?.mobile ? `<span class="error">${escapeHtml(errors.player2.mobile)}</span>` : ''}
           </div>
         </div>
@@ -797,11 +862,11 @@ function renderStep3(): string {
   const hasFormatSports = needing.some(needsFormat)
   return `
     <div class="fade-step">
-      <h2 class="step-title">${hasFormatSports ? 'Format & player details' : 'Player details'}</h2>
+      <h2 class="step-title">${hasFormatSports ? bi('Format & player details', GU.formatTitle) : bi('Player details', GU.playerDetailsTitle)}</h2>
       <p class="step-sub">
-        Full name and mobile are required for each sport.
-        ${hasFormatSports ? 'For racket sports, also choose Single or Doubles. ' : ''}
-        ${category ? `Live ${escapeHtml(category)} slot counts update instantly.` : ''}
+        ${bi('Full name and mobile are required for each sport.', GU.formatSub)}
+        ${hasFormatSports ? bi('For racket sports, also choose Single or Doubles. ', GU.formatSubRacket) : ''}
+        ${category ? `${bi(`Live ${category} slot counts update instantly.`, `લાઇવ ${category === 'Male' ? GU.men : GU.women} સ્લોટ તરત અપડેટ થાય છે.`)}` : ''}
       </p>
 
       ${formatError ? `<div class="alert">${escapeHtml(formatError)}</div>` : ''}
@@ -821,27 +886,29 @@ function renderStep3(): string {
           return `
         <div class="format-card ${isSingle || playerOnly ? 'is-single-mode' : ''}">
           <div class="format-card-header">
-            <h3>${sportLabel(id)}</h3>
+            <h3><span class="sport-heading">${sportIcon(id)} ${sportBi(id)}</span></h3>
             ${slotBadgeHtml(id)}
           </div>
           ${
             playerOnly
-              ? `<p class="step-sub" style="margin:0 0 0.85rem">Enter the player full name and mobile for ${sportLabel(id)}.</p>`
+              ? `<p class="step-sub" style="margin:0 0 0.85rem">${bi(`Enter the player full name and mobile for ${sportLabel(id)}.`, GU.playerOnlyHint(sportBiText(id)))}</p>`
               : `
           <div class="format-options">
             <button type="button"
-              class="choice ${isSingle ? 'is-selected' : ''}"
+              class="choice choice-format ${isSingle ? 'is-selected' : ''}"
               data-action="format" data-sport="${id}" data-format="single">
+              <span class="choice-icon-wrap">${iconSingle()}</span>
               <span class="choice-check" aria-hidden="true"></span>
-              <span class="choice-title">Single</span>
-              <span class="choice-meta">Organizer assigns partner</span>
+              <span class="choice-title">${bi('Single', GU.single)}</span>
+              <span class="choice-meta">${bi('Organizer assigns partner', GU.singleMeta)}</span>
             </button>
             <button type="button"
-              class="choice ${isDouble ? 'is-selected' : ''}"
+              class="choice choice-format ${isDouble ? 'is-selected' : ''}"
               data-action="format" data-sport="${id}" data-format="double">
+              <span class="choice-icon-wrap">${iconDouble()}</span>
               <span class="choice-check" aria-hidden="true"></span>
-              <span class="choice-title">Double</span>
-              <span class="choice-meta">Choose your partner</span>
+              <span class="choice-title">${bi('Double', GU.double)}</span>
+              <span class="choice-meta">${bi('Choose your partner', GU.doubleMeta)}</span>
             </button>
           </div>
           `
@@ -860,8 +927,8 @@ function renderStep3(): string {
         .join('')}
 
       <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="back">Back</button>
-        <button type="button" class="btn btn-primary" data-action="next">Review</button>
+        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
+        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Review', GU.review))}</button>
       </div>
     </div>
   `
@@ -874,13 +941,13 @@ function reviewBadge(sport: SelectedSport): string {
     state.mobile,
   )
   if (existing) {
-    return `<span class="badge badge-warn">Already registered</span>`
+    return `<span class="badge badge-warn">${bi('Already registered', GU.alreadyRegistered)}</span>`
   }
   if (sport.status === 'waiting') {
-    return `<span class="badge badge-full">Waiting list</span>`
+    return `<span class="badge badge-full">${bi('Waiting list', GU.waitingList)}</span>`
   }
   const slots = slotsFor(sport.sportId)
-  return `<span class="badge badge-ok">${slots} available · Confirmed</span>`
+  return `<span class="badge badge-ok">${bi(`${slots} available · Confirmed`, GU.availableConfirmed(slots))}</span>`
 }
 
 function renderStep4(): string {
@@ -891,17 +958,17 @@ function renderStep4(): string {
 
   return `
     <div class="fade-step">
-      <h2 class="step-title">Review & submit</h2>
-      <p class="step-sub">Confirm your details and sports. Full sports go on the waiting list.</p>
+      <h2 class="step-title">${bi('Review & submit', GU.reviewTitle)}</h2>
+      <p class="step-sub">${bi('Confirm your details and sports. Full sports go on the waiting list.', GU.reviewSub)}</p>
 
       <div class="summary-box">
         <p><strong>${escapeHtml(state.fullName.trim())}</strong></p>
         <p>${escapeHtml(normalizeMobile(state.mobile))} · ${escapeHtml(state.location.trim())}</p>
-        <p style="margin-top:0.55rem;opacity:0.85">${escapeHtml(category)} tournament</p>
+        <p style="margin-top:0.55rem;opacity:0.85">${bi(`${category} tournament`, `${category === 'Male' ? GU.male : category === 'Female' ? GU.female : category} ${GU.tournament}`)}</p>
       </div>
 
-      ${hasWaiting ? `<div class="alert" style="background:#fff8e6;border-color:rgba(212,160,23,0.35);color:#8a6a00">Some sports are full — you will be added to the waiting list for those.</div>` : ''}
-      ${submitError || !check.ok ? `<div class="alert">${submitError || check.message}</div>` : ''}
+      ${hasWaiting ? `<div class="alert" style="background:#fff8e6;border-color:rgba(212,160,23,0.35);color:#8a6a00">${bi('Some sports are full — you will be added to the waiting list for those.', GU.waitingAlert)}</div>` : ''}
+      ${submitError || !check.ok ? `<div class="alert">${escapeHtml(submitError || check.message)}</div>` : ''}
 
       <div class="review-list">
         ${sports
@@ -915,16 +982,19 @@ function renderStep4(): string {
             const formatText = formatLabel(s)
             return `
               <div class="review-item ${blocked ? 'blocked' : ''} ${s.status === 'waiting' && !blocked ? 'is-waiting' : ''}">
-                <div>
-                  <h4>${sportLabel(s.sportId)}</h4>
-                  <p class="meta">${escapeHtml(formatText)}</p>
-                  ${
-                    existing
-                      ? `<p class="existing-detail">${escapeHtml(existing)}</p>`
-                      : s.status === 'waiting'
-                        ? `<p class="existing-detail" style="color:#8a6a00">No open slots — registered as waiting for this sport.</p>`
-                        : ''
-                  }
+                <div class="review-sport">
+                  <span class="review-sport-icon">${sportIcon(s.sportId)}</span>
+                  <div>
+                    <h4>${sportBi(s.sportId)}</h4>
+                    <p class="meta">${escapeHtml(formatText)}</p>
+                    ${
+                      existing
+                        ? `<p class="existing-detail">${escapeHtml(existing)}</p>`
+                        : s.status === 'waiting'
+                          ? `<p class="existing-detail" style="color:#8a6a00">${bi('No open slots — registered as waiting for this sport.', GU.waitingDetail)}</p>`
+                          : ''
+                    }
+                  </div>
                 </div>
                 ${reviewBadge(s)}
               </div>
@@ -934,9 +1004,9 @@ function renderStep4(): string {
       </div>
 
       <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="back">Back</button>
+        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
         <button type="button" class="btn btn-gold" data-action="submit" ${!check.ok ? 'disabled' : ''}>
-          Submit Registration
+          ${withIcon(iconCheck(), bi('Submit Registration', GU.submit))}
         </button>
       </div>
     </div>
@@ -950,16 +1020,17 @@ function renderStep5(): string {
   const category = state.gender ? genderLabel(state.gender) : ''
   return `
     <div class="fade-step success-screen">
-      <div class="success-icon">✓</div>
-      <h2>You're registered!</h2>
-      <p>Registration saved for ${escapeHtml(state.fullName.trim())}${category ? ` (${escapeHtml(category)})` : ''}.</p>
+      <div class="success-burst" aria-hidden="true"></div>
+      <div class="success-icon">${iconCheck()}</div>
+      <h2>${bi("You're registered!", GU.successTitle)}</h2>
+      <p>${bi(`Registration saved for ${escapeHtml(state.fullName.trim())}${category ? ` (${escapeHtml(category)})` : ''}.`, `${escapeHtml(state.fullName.trim())}${category ? ` (${category === 'Male' ? GU.male : GU.female})` : ''} ${GU.successSaved}.`)}</p>
 
       <div class="reference-box" role="status">
-        <span class="reference-label">Your reference number</span>
+        <span class="reference-label">${iconSpark()} ${bi('Your reference number', GU.referenceLabel)}</span>
         <strong class="reference-code" id="registration-reference">${escapeHtml(lastReference)}</strong>
-        <p class="reference-hint">Save this number — use it if you contact the organizers about your registration.</p>
+        <p class="reference-hint">${bi('Save this number — use it if you contact the organizers about your registration.', GU.referenceHint)}</p>
         <button type="button" class="btn btn-ghost reference-copy" data-action="copy-ref">
-          Copy reference
+          ${withIcon(iconCopy(), bi('Copy reference', GU.copyReference))}
         </button>
       </div>
 
@@ -969,13 +1040,16 @@ function renderStep5(): string {
             const formatText = formatLabel(s)
             const badge =
               s.status === 'waiting'
-                ? `<span class="badge badge-full">Waiting</span>`
-                : `<span class="badge badge-ok">Confirmed</span>`
+                ? `<span class="badge badge-full">${bi('Waiting', GU.waiting)}</span>`
+                : `<span class="badge badge-ok">${bi('Confirmed', GU.confirmed)}</span>`
             return `
               <div class="review-item">
-                <div>
-                  <h4>${sportLabel(s.sportId)}</h4>
-                  <p class="meta">${escapeHtml(formatText)}</p>
+                <div class="review-sport">
+                  <span class="review-sport-icon">${sportIcon(s.sportId)}</span>
+                  <div>
+                    <h4>${sportBi(s.sportId)}</h4>
+                    <p class="meta">${escapeHtml(formatText)}</p>
+                  </div>
                 </div>
                 ${badge}
               </div>
@@ -984,7 +1058,7 @@ function renderStep5(): string {
           .join('')}
       </div>
       <button type="button" class="btn btn-primary" data-action="reset" style="margin:0 auto;display:inline-flex">
-        Register another player
+        ${withIcon(iconSpark(), bi('Register another player', GU.registerAnother))}
       </button>
     </div>
   `
@@ -1015,7 +1089,7 @@ function render(): void {
             : renderStep5()
 
   app.innerHTML = `
-    <a class="nav-corner nav-corner-left" href="#/admin">Admin</a>
+    <a class="nav-corner nav-corner-left" href="#/admin">${iconAdmin()} Admin</a>
 
     <div class="shell">
       <header class="brand">
@@ -1023,7 +1097,7 @@ function render(): void {
           <div class="brand-ring" aria-hidden="true"></div>
         </div>
         <h1>CHANSMA OLYMPIC</h1>
-        <p>Tournament Registration</p>
+        <p>${bi('Tournament Registration', GU.brandSub)}</p>
       </header>
 
       <main class="panel">
@@ -1049,8 +1123,12 @@ function checkPlayerMobileConflict(
   const mobile = players?.[playerKey].mobile ?? ''
   const normalized = normalizeMobile(mobile)
 
-  // Clear previous "registered" error for this field first
-  if (doublesErrors[sportId]?.[playerKey]?.mobile?.includes('registered')) {
+  // Clear previous "already registered" conflict for this field first
+  const prevMobileErr = doublesErrors[sportId]?.[playerKey]?.mobile ?? ''
+  if (
+    prevMobileErr.includes('registered') ||
+    prevMobileErr.includes('નોંધાયેલ')
+  ) {
     delete doublesErrors[sportId]![playerKey]!.mobile
     if (
       doublesErrors[sportId]?.[playerKey] &&

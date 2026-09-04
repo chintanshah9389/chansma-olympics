@@ -5,6 +5,7 @@ import type {
   SportId,
 } from './types'
 import { applyCapacities, getCapacities, sportCapacity, type SportCapacities } from './sports'
+import { GU, biText } from './i18n'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || ''
 
@@ -34,10 +35,12 @@ export async function refreshRegistrations(): Promise<Registration[]> {
     loadError = null
     return cache
   } catch (error) {
-    loadError =
+    loadError = biText(
       error instanceof Error
         ? error.message
-        : 'Could not connect to registration API'
+        : 'Could not connect to registration API',
+      GU.errApiLoad,
+    )
     console.error(loadError)
     return cache
   }
@@ -90,7 +93,12 @@ export async function saveRegistration(
     const body = (await response.json().catch(() => null)) as {
       error?: string
     } | null
-    throw new Error(body?.error || `Save failed (${response.status})`)
+    throw new Error(
+      biText(
+        body?.error || `Save failed (${response.status})`,
+        GU.errSaveFailed,
+      ),
+    )
   }
 
   await refreshRegistrations()
@@ -267,22 +275,37 @@ function formatConflictMessage(
           : ''
   }
 
-  const genderTag =
+  const genderTagEn =
     registration.gender === 'female' ? ' (Female)' : ' (Male)'
+  const genderTagGu =
+    registration.gender === 'female' ? GU.genderFemaleTag : GU.genderMaleTag
+  const sportGu = GU.sports[entry.sportId] ?? sportName
 
   if (entry.format === 'double' && partnerName) {
-    return `Already registered: ${userName} for ${sportName} as Doubles with partner ${partnerName}${genderTag}.`
+    return biText(
+      `Already registered: ${userName} for ${sportName} as Doubles with partner ${partnerName}${genderTagEn}.`,
+      GU.conflictDoublesPartner(userName, sportGu, partnerName, genderTagGu),
+    )
   }
 
   if (entry.format === 'double') {
-    return `Already registered: ${userName} for ${sportName} as Doubles${genderTag}.`
+    return biText(
+      `Already registered: ${userName} for ${sportName} as Doubles${genderTagEn}.`,
+      GU.conflictDoubles(userName, sportGu, genderTagGu),
+    )
   }
 
   if (entry.sportId === 'football') {
-    return `Already registered: ${userName} for ${sportName}${genderTag}.`
+    return biText(
+      `Already registered: ${userName} for ${sportName}${genderTagEn}.`,
+      GU.conflictFootball(userName, sportGu, genderTagGu),
+    )
   }
 
-  return `Already registered: ${userName} for ${sportName} as Singles${genderTag}.`
+  return biText(
+    `Already registered: ${userName} for ${sportName} as Singles${genderTagEn}.`,
+    GU.conflictSingles(userName, sportGu, genderTagGu),
+  )
 }
 
 export function createId(): string {
