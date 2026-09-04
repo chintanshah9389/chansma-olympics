@@ -25,6 +25,8 @@ import { onRealtimeUpdate } from './realtime'
 type FlatRow = {
   registration: Registration
   sport: SelectedSport | null
+  /** 1-based rank within confirmed or waiting for that sport + gender */
+  seatNumber: number | null
 }
 
 type SportFilter = 'all' | SportId
@@ -73,18 +75,90 @@ function formatLabel(
   return 'Singles'
 }
 
+function statusLabel(row: FlatRow): string {
+  const status = row.sport?.status
+  if (!status) return '—'
+  const rank = row.seatNumber
+  const word = status === 'confirmed' ? 'Confirmed' : 'Waiting'
+  return rank != null ? `${word} ${rank}` : word
+}
+
+function createdAtMs(iso: string): number {
+  const t = new Date(iso).getTime()
+  return Number.isNaN(t) ? 0 : t
+}
+
+function sportOrderIndex(id: SportId | undefined): number {
+  if (!id) return ALL_SPORT_IDS.length
+  const idx = ALL_SPORT_IDS.indexOf(id)
+  return idx === -1 ? ALL_SPORT_IDS.length : idx
+}
+
+/** Flatten registrations, then number Confirmed 1…N / Waiting 1…N per sport+gender (oldest first). */
 function flattenRows(regs: Registration[]): FlatRow[] {
   const rows: FlatRow[] = []
   for (const registration of regs) {
     if (!registration.sports.length) {
-      rows.push({ registration, sport: null })
+      rows.push({ registration, sport: null, seatNumber: null })
       continue
     }
     for (const sport of registration.sports) {
-      rows.push({ registration, sport })
+      rows.push({ registration, sport, seatNumber: null })
     }
   }
+
+  const buckets = new Map<string, FlatRow[]>()
+  for (const row of rows) {
+    if (!row.sport) continue
+    const key = `${row.sport.sportId}:${row.registration.gender}:${row.sport.status ?? 'confirmed'}`
+    const list = buckets.get(key)
+    if (list) list.push(row)
+    else buckets.set(key, [row])
+  }
+
+  for (const list of buckets.values()) {
+    list.sort((a, b) => {
+      const byTime =
+        createdAtMs(a.registration.createdAt) -
+        createdAtMs(b.registration.createdAt)
+      if (byTime !== 0) return byTime
+      return a.registration.id.localeCompare(b.registration.id)
+    })
+    list.forEach((row, i) => {
+      row.seatNumber = i + 1
+    })
+  }
+
   return rows
+}
+
+/** Confirmed 1…N then Waiting 1…N within each sport (+ gender when not filtered). */
+function sortSeatRows(rows: FlatRow[]): FlatRow[] {
+  return [...rows].sort((a, b) => {
+    const sportDiff =
+      sportOrderIndex(a.sport?.sportId) - sportOrderIndex(b.sport?.sportId)
+    if (sportDiff !== 0) return sportDiff
+
+    const genderDiff = a.registration.gender.localeCompare(
+      b.registration.gender,
+    )
+    if (genderDiff !== 0) return genderDiff
+
+    const statusRank = (s: SportSeatStatus | undefined) =>
+      s === 'waiting' ? 1 : s === 'confirmed' ? 0 : 2
+    const statusDiff =
+      statusRank(a.sport?.status) - statusRank(b.sport?.status)
+    if (statusDiff !== 0) return statusDiff
+
+    const seatA = a.seatNumber ?? Number.MAX_SAFE_INTEGER
+    const seatB = b.seatNumber ?? Number.MAX_SAFE_INTEGER
+    if (seatA !== seatB) return seatA - seatB
+
+    return (
+      createdAtMs(a.registration.createdAt) -
+      createdAtMs(b.registration.createdAt)
+    )
+  })
 }
 
 function matchesQuery(row: FlatRow, q: string): boolean {
@@ -101,6 +175,7 @@ function matchesQuery(row: FlatRow, q: string): boolean {
     s ? sportLabel(s.sportId) : '',
     s?.format ?? '',
     s?.status ?? '',
+    statusLabel(row),
     s?.player1Name ?? '',
     s?.player1Mobile ?? '',
     s?.player2Name ?? '',
@@ -126,7 +201,7 @@ function matchesFilters(
 function rowHtml(row: FlatRow, index: number): string {
   const r = row.registration
   const s = row.sport
-  const status = s?.status ?? '—'
+  const status = s?.status ?? ''
   const statusClass =
     status === 'waiting'
       ? 'is-waiting'
@@ -135,20 +210,20 @@ function rowHtml(row: FlatRow, index: number): string {
         : ''
 
   return `
-    <tr>
+    <tr class="${statusClass ? `row-${status}` : ''}">
       <td class="col-num">${index + 1}</td>
-      <td class="col-ref"><code>${escapeHtml(r.id)}</code></td>
+      <td class="col-seat"><span class="status-pill ${statusClass}">${escapeHtml(statusLabel(row))}</span></td>
+      <td class="col-sport">${s ? escapeHtml(sportLabel(s.sportId)) : '—'}</td>
       <td>${escapeHtml(r.fullName)}</td>
+      <td>${escapeHtml(genderLabel(r.gender))}</td>
+      <td>${s ? escapeHtml(formatLabel(s.format, s.sportId)) : '—'}</td>
       <td>${escapeHtml(r.mobile)}</td>
       <td>${escapeHtml(r.location)}</td>
-      <td>${escapeHtml(genderLabel(r.gender))}</td>
-      <td>${s ? escapeHtml(sportLabel(s.sportId)) : '—'}</td>
-      <td>${s ? escapeHtml(formatLabel(s.format, s.sportId)) : '—'}</td>
-      <td><span class="status-pill ${statusClass}">${escapeHtml(status)}</span></td>
       <td>${escapeHtml(s?.player1Name || '—')}</td>
       <td>${escapeHtml(s?.player1Mobile || '—')}</td>
       <td>${escapeHtml(s?.player2Name || '—')}</td>
       <td>${escapeHtml(s?.player2Mobile || '—')}</td>
+      <td class="col-ref"><code>${escapeHtml(r.id)}</code></td>
       <td class="col-when">${escapeHtml(formatWhen(r.createdAt))}</td>
     </tr>
   `
@@ -162,18 +237,18 @@ function csvEscape(value: string): string {
 function downloadCsv(rows: FlatRow[]): void {
   const headers = [
     '#',
-    'Reference',
+    'Seat',
+    'Sport',
     'Full Name',
+    'Gender',
+    'Format',
     'Mobile',
     'Location',
-    'Gender',
-    'Sport',
-    'Format',
-    'Status',
     'Player 1 Name',
     'Player 1 Mobile',
     'Player 2 Name',
     'Player 2 Mobile',
+    'Reference',
     'Registered At',
   ]
 
@@ -184,18 +259,18 @@ function downloadCsv(rows: FlatRow[]): void {
       const s = row.sport
       return [
         String(i + 1),
-        r.id,
+        statusLabel(row),
+        s ? sportLabel(s.sportId) : '',
         r.fullName,
+        genderLabel(r.gender),
+        s ? formatLabel(s.format, s.sportId) : '',
         r.mobile,
         r.location,
-        genderLabel(r.gender),
-        s ? sportLabel(s.sportId) : '',
-        s ? formatLabel(s.format, s.sportId) : '',
-        s?.status ?? '',
         s?.player1Name ?? '',
         s?.player1Mobile ?? '',
         s?.player2Name ?? '',
         s?.player2Mobile ?? '',
+        r.id,
         r.createdAt,
       ]
         .map((cell) => csvEscape(cell))
@@ -203,7 +278,9 @@ function downloadCsv(rows: FlatRow[]): void {
     }),
   ]
 
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const blob = new Blob(['\ufeff' + lines.join('\n')], {
+    type: 'text/csv;charset=utf-8',
+  })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -261,14 +338,20 @@ export function renderAdmin(root: HTMLElement): void {
   ensureAdminRealtime(root)
 
   const apiError = getStorageError()
-  const regs = [...getRegistrations()].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  )
+  const regs = getRegistrations()
   const allRows = flattenRows(regs)
-  const rows = allRows.filter(
-    (row) =>
-      matchesFilters(row, sportFilter, genderFilter, statusFilter) &&
-      matchesQuery(row, searchQuery.trim().toLowerCase()),
+  const confirmedCount = allRows.filter(
+    (r) => r.sport?.status === 'confirmed',
+  ).length
+  const waitingCount = allRows.filter(
+    (r) => r.sport?.status === 'waiting',
+  ).length
+  const rows = sortSeatRows(
+    allRows.filter(
+      (row) =>
+        matchesFilters(row, sportFilter, genderFilter, statusFilter) &&
+        matchesQuery(row, searchQuery.trim().toLowerCase()),
+    ),
   )
 
   const sportCounts = Object.fromEntries(
@@ -371,7 +454,9 @@ export function renderAdmin(root: HTMLElement): void {
         <div class="admin-toolbar">
           <div class="admin-stats">
             <span><strong>${regs.length}</strong> registrations</span>
-            <span><strong>${allRows.length}</strong> sport entries</span>
+            <span><strong>${allRows.length}</strong> sport seats</span>
+            <span class="stat-confirmed"><strong>${confirmedCount}</strong> confirmed</span>
+            <span class="stat-waiting"><strong>${waitingCount}</strong> waiting</span>
             <span>Showing <strong>${rows.length}</strong></span>
           </div>
           <div class="admin-actions">
@@ -379,12 +464,12 @@ export function renderAdmin(root: HTMLElement): void {
               type="search"
               class="admin-search"
               name="adminSearch"
-              placeholder="Search name, mobile, sport…"
+              placeholder="Search name, mobile, sport, seat…"
               value="${escapeHtml(searchQuery)}"
               autocomplete="off"
             />
             <button type="button" class="btn btn-ghost" data-admin="refresh">${withIcon(iconRefresh(), 'Refresh')}</button>
-            <button type="button" class="btn btn-ghost" data-admin="csv">${withIcon(iconDownload(), 'Export CSV')}</button>
+            <button type="button" class="btn btn-gold" data-admin="csv">${withIcon(iconDownload(), 'Export CSV')}</button>
             ${
               filtersActive
                 ? `<button type="button" class="btn btn-ghost" data-admin="clear">Clear filters</button>`
@@ -418,11 +503,12 @@ export function renderAdmin(root: HTMLElement): void {
           <div class="filter-row">
             <span class="filter-label">Status</span>
             <div class="filter-chips">
-              ${filterChip('All', statusFilter === 'all', 'data-filter-status="all"')}
-              ${filterChip('Confirmed', statusFilter === 'confirmed', 'data-filter-status="confirmed"')}
-              ${filterChip('Waiting', statusFilter === 'waiting', 'data-filter-status="waiting"')}
+              ${filterChip(`All (${allRows.length})`, statusFilter === 'all', 'data-filter-status="all"')}
+              ${filterChip(`Confirmed (${confirmedCount})`, statusFilter === 'confirmed', 'data-filter-status="confirmed"')}
+              ${filterChip(`Waiting (${waitingCount})`, statusFilter === 'waiting', 'data-filter-status="waiting"')}
             </div>
           </div>
+          <p class="filter-hint">Rows are ordered Confirmed 1, 2, 3… then Waiting 1, 2, 3… per sport and gender (oldest registration first).</p>
         </div>
 
         ${
@@ -435,19 +521,19 @@ export function renderAdmin(root: HTMLElement): void {
           <table class="admin-table">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Reference</th>
+                <th class="col-num">#</th>
+                <th class="col-seat">Seat</th>
+                <th class="col-sport">Sport</th>
                 <th>Full name</th>
+                <th>Gender</th>
+                <th>Format</th>
                 <th>Mobile</th>
                 <th>Location</th>
-                <th>Gender</th>
-                <th>Sport</th>
-                <th>Format</th>
-                <th>Status</th>
                 <th>Player 1</th>
                 <th>P1 mobile</th>
                 <th>Player 2</th>
                 <th>P2 mobile</th>
+                <th>Reference</th>
                 <th>Registered</th>
               </tr>
             </thead>

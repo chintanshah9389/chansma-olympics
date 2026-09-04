@@ -871,7 +871,7 @@ body::before {
 
 /* —— Admin —— */
 .shell-admin {
-  width: min(1280px, 100%);
+  width: min(1440px, 100%);
 }
 
 .brand-admin {
@@ -1095,6 +1095,14 @@ body::before {
   font-weight: 800;
 }
 
+.admin-stats .stat-confirmed strong {
+  color: var(--success);
+}
+
+.admin-stats .stat-waiting strong {
+  color: #8a6500;
+}
+
 .admin-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1183,45 +1191,127 @@ body::before {
   color: var(--white);
 }
 
+.filter-hint {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .admin-table-wrap {
   overflow: auto;
-  max-height: min(70vh, 820px);
+  max-height: min(72vh, 880px);
+  border-top: 1px solid var(--line);
+  background:
+    linear-gradient(90deg, #f7f2e8 30%, transparent) 0 0 / 24px 100% no-repeat local,
+    linear-gradient(270deg, #f7f2e8 30%, transparent) 100% 0 / 24px 100% no-repeat local,
+    linear-gradient(90deg, rgba(11, 31, 58, 0.06), transparent 40%) 0 0 / 16px 100% no-repeat scroll,
+    linear-gradient(270deg, rgba(11, 31, 58, 0.06), transparent 40%) 100% 0 / 16px 100% no-repeat scroll;
+  background-attachment: local, local, scroll, scroll;
 }
 
 .admin-table {
-  width: 100%;
-  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.82rem;
   white-space: nowrap;
 }
 
 .admin-table th,
 .admin-table td {
-  padding: 0.7rem 0.85rem;
+  padding: 0.72rem 0.9rem;
   text-align: left;
   border-bottom: 1px solid var(--line);
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .admin-table th {
   position: sticky;
   top: 0;
-  z-index: 1;
-  background: #f3eee3;
+  z-index: 2;
+  background: #efe8da;
   color: var(--navy);
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   font-weight: 800;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.admin-table tbody tr:nth-child(even) {
+  background: rgba(11, 31, 58, 0.025);
 }
 
 .admin-table tbody tr:hover {
-  background: rgba(212, 160, 23, 0.08);
+  background: rgba(212, 160, 23, 0.1);
+}
+
+.admin-table tbody tr.row-waiting {
+  background: rgba(212, 160, 23, 0.06);
+}
+
+.admin-table tbody tr.row-waiting:nth-child(even) {
+  background: rgba(212, 160, 23, 0.09);
+}
+
+.admin-table tbody tr.row-waiting:hover {
+  background: rgba(212, 160, 23, 0.14);
 }
 
 .admin-table .col-num {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  width: 2.5rem;
+  text-align: right;
+}
+
+.admin-table .col-seat {
+  min-width: 7.5rem;
+}
+
+.admin-table .col-sport {
+  font-weight: 700;
+  color: var(--navy);
+  min-width: 6.5rem;
+}
+
+.admin-table th.col-num,
+.admin-table td.col-num,
+.admin-table th.col-seat,
+.admin-table td.col-seat {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #f7f2e8;
+}
+
+.admin-table th.col-seat,
+.admin-table td.col-seat {
+  left: 2.75rem;
+  box-shadow: 4px 0 8px -6px rgba(11, 31, 58, 0.2);
+}
+
+.admin-table thead th.col-num,
+.admin-table thead th.col-seat {
+  z-index: 3;
+  background: #efe8da;
+}
+
+.admin-table tbody tr:nth-child(even) td.col-num,
+.admin-table tbody tr:nth-child(even) td.col-seat {
+  background: #f1ebe0;
+}
+
+.admin-table tbody tr:hover td.col-num,
+.admin-table tbody tr:hover td.col-seat {
+  background: #f3e8d0;
+}
+
+.admin-table tbody tr.row-waiting td.col-num,
+.admin-table tbody tr.row-waiting td.col-seat {
+  background: #f6edd8;
 }
 
 .admin-table .col-ref code {
@@ -1248,22 +1338,24 @@ body::before {
 
 .status-pill {
   display: inline-block;
-  padding: 0.15rem 0.5rem;
+  padding: 0.22rem 0.55rem;
   border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: capitalize;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   background: rgba(11, 31, 58, 0.08);
   color: var(--navy);
 }
 
 .status-pill.is-confirmed {
-  background: rgba(15, 122, 74, 0.12);
+  background: rgba(15, 122, 74, 0.14);
   color: var(--success);
 }
 
 .status-pill.is-waiting {
-  background: rgba(212, 160, 23, 0.2);
+  background: rgba(212, 160, 23, 0.28);
   color: #8a6500;
 }
 
