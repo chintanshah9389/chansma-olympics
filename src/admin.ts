@@ -218,14 +218,40 @@ let sportFilter: SportFilter = 'all'
 let genderFilter: GenderFilter = 'all'
 let statusFilter: StatusFilter = 'all'
 let unsubRealtime: (() => void) | null = null
+let adminRoot: HTMLElement | null = null
+let realtimeRefreshTimer: number | null = null
+
+function scheduleAdminRealtimeRefresh(): void {
+  if (realtimeRefreshTimer !== null) return
+  realtimeRefreshTimer = window.setTimeout(() => {
+    realtimeRefreshTimer = null
+    if (!adminRoot || !isAdminRoute()) return
+    const editingCap = adminRoot.querySelector('[data-cap-sport]:focus')
+    if (!editingCap) syncCapacityDraftFromLive()
+    renderAdmin(adminRoot)
+  }, 100)
+}
+
+function ensureAdminRealtime(root: HTMLElement): void {
+  adminRoot = root
+  if (unsubRealtime) return
+  unsubRealtime = onRealtimeUpdate(() => {
+    scheduleAdminRealtimeRefresh()
+  })
+}
 
 export function destroyAdmin(): void {
+  if (realtimeRefreshTimer !== null) {
+    window.clearTimeout(realtimeRefreshTimer)
+    realtimeRefreshTimer = null
+  }
   unsubRealtime?.()
   unsubRealtime = null
+  adminRoot = null
 }
 
 export function renderAdmin(root: HTMLElement): void {
-  destroyAdmin()
+  ensureAdminRealtime(root)
 
   const apiError = getStorageError()
   const regs = [...getRegistrations()].sort(
@@ -251,6 +277,12 @@ export function renderAdmin(root: HTMLElement): void {
     statusFilter !== 'all' ||
     Boolean(searchQuery.trim())
 
+  const activeEl = document.activeElement as HTMLElement | null
+  const activeName =
+    activeEl instanceof HTMLInputElement ? activeEl.name || activeEl.id : ''
+  const activePos =
+    activeEl instanceof HTMLInputElement ? activeEl.selectionStart : null
+
   root.innerHTML = `
     <a class="nav-corner nav-corner-left" href="#/">← Form</a>
 
@@ -265,24 +297,24 @@ export function renderAdmin(root: HTMLElement): void {
 
       <main class="panel panel-admin">
         <section class="capacity-panel">
-          <div class="capacity-header">
-            <div>
+          <div class="capacity-top">
+            <div class="capacity-intro">
+              <p class="capacity-kicker">Live settings</p>
               <h2 class="capacity-title">Slot counts</h2>
-              <p class="capacity-sub">
-                Set Men and Women capacity for every sport. Click Apply — registration form slot badges update live in the browser.
-              </p>
+              <p class="capacity-sub">Men and women capacity per sport. Apply to update registration badges instantly.</p>
             </div>
-            <div class="capacity-actions">
-              <label class="fill-all">
-                Fill all
-                <input type="number" min="0" step="1" name="fillAllValue" value="16" />
-              </label>
-              <button type="button" class="btn btn-ghost" data-admin="fill-all">Set all men &amp; women</button>
-              <button type="button" class="btn btn-primary" data-admin="apply-capacities" ${capacitySaving ? 'disabled' : ''}>
-                ${capacitySaving ? 'Applying…' : 'Apply'}
+            <div class="capacity-toolbar">
+              <div class="capacity-fill">
+                <span class="capacity-fill-label">Fill all</span>
+                <input type="number" min="0" step="1" name="fillAllValue" value="16" aria-label="Fill all value" />
+                <button type="button" class="btn btn-ghost" data-admin="fill-all">Use for every sport</button>
+              </div>
+              <button type="button" class="btn btn-gold" data-admin="apply-capacities" ${capacitySaving ? 'disabled' : ''}>
+                ${capacitySaving ? 'Applying…' : 'Apply changes'}
               </button>
             </div>
           </div>
+
           ${
             capacityError
               ? `<div class="alert">${escapeHtml(capacityError)}</div>`
@@ -293,29 +325,39 @@ export function renderAdmin(root: HTMLElement): void {
               ? `<div class="capacity-ok">${escapeHtml(capacityMessage)}</div>`
               : ''
           }
-          <div class="capacity-grid">
-            ${ALL_SPORT_IDS.map((id) => {
-              const caps = ensureCapacityDraft()[id]
-              return `
-              <div class="capacity-card">
-                <h3>${sportLabel(id)}</h3>
-                <div class="capacity-fields">
-                  <div class="field">
-                    <label for="cap-male-${id}">Men</label>
-                    <input id="cap-male-${id}" type="number" min="0" step="1"
-                      data-cap-sport="${id}" data-cap-gender="male"
-                      value="${caps.male}" />
-                  </div>
-                  <div class="field">
-                    <label for="cap-female-${id}">Women</label>
-                    <input id="cap-female-${id}" type="number" min="0" step="1"
-                      data-cap-sport="${id}" data-cap-gender="female"
-                      value="${caps.female}" />
-                  </div>
-                </div>
-              </div>
-            `
-            }).join('')}
+
+          <div class="capacity-table-wrap">
+            <table class="capacity-table">
+              <thead>
+                <tr>
+                  <th scope="col">Sport</th>
+                  <th scope="col">Men</th>
+                  <th scope="col">Women</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ALL_SPORT_IDS.map((id) => {
+                  const caps = ensureCapacityDraft()[id]
+                  return `
+                  <tr>
+                    <th scope="row">${sportLabel(id)}</th>
+                    <td>
+                      <input type="number" min="0" step="1"
+                        id="cap-male-${id}"
+                        data-cap-sport="${id}" data-cap-gender="male"
+                        value="${caps.male}" aria-label="${sportLabel(id)} men" />
+                    </td>
+                    <td>
+                      <input type="number" min="0" step="1"
+                        id="cap-female-${id}"
+                        data-cap-sport="${id}" data-cap-gender="female"
+                        value="${caps.female}" aria-label="${sportLabel(id)} women" />
+                    </td>
+                  </tr>
+                `
+                }).join('')}
+              </tbody>
+            </table>
           </div>
         </section>
 
@@ -419,12 +461,6 @@ export function renderAdmin(root: HTMLElement): void {
   search?.addEventListener('input', () => {
     searchQuery = search.value
     renderAdmin(root)
-    const again = root.querySelector<HTMLInputElement>('input[name="adminSearch"]')
-    if (again) {
-      again.focus()
-      const len = again.value.length
-      again.setSelectionRange(len, len)
-    }
   })
 
   root.querySelectorAll<HTMLButtonElement>('[data-filter-sport]').forEach((btn) => {
@@ -519,10 +555,21 @@ export function renderAdmin(root: HTMLElement): void {
     })
   })
 
-  unsubRealtime = onRealtimeUpdate(() => {
-    syncCapacityDraftFromLive()
-    renderAdmin(root)
-  })
+  if (activeName) {
+    const restore =
+      root.querySelector<HTMLInputElement>(`#${CSS.escape(activeName)}`) ||
+      root.querySelector<HTMLInputElement>(`[name="${CSS.escape(activeName)}"]`)
+    if (restore) {
+      restore.focus()
+      if (activePos !== null) {
+        try {
+          restore.setSelectionRange(activePos, activePos)
+        } catch {
+          // number inputs may not support selection
+        }
+      }
+    }
+  }
 }
 
 export function isAdminRoute(): boolean {

@@ -26,7 +26,8 @@ function wsUrl(): string {
 }
 
 function notify(): void {
-  for (const listener of listeners) listener()
+  // Snapshot so listeners can unsubscribe/resubscribe safely during notify
+  for (const listener of [...listeners]) listener()
 }
 
 async function handleUpdate(type?: string): Promise<void> {
