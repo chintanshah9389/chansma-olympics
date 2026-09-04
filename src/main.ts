@@ -260,11 +260,11 @@ function validateSports(): boolean {
     sportError = biText('Select Male or Female first', GU.errSelectGender)
     return false
   }
-  if (!state.primarySport) {
-    sportError =
-      state.gender === 'female'
-        ? biText('Choose Pickleball as the main sport', GU.errPickleballFemale)
-        : biText('Choose Football or Pickleball', GU.errFootballOrPickle)
+  if (selectedSportsList().length === 0) {
+    sportError = biText(
+      'Select at least one sport (main or additional)',
+      GU.errMinOneSport,
+    )
     return false
   }
   if (state.secondarySports.length > 2) {
@@ -553,7 +553,18 @@ function setPrimary(id: SportId): void {
     render()
     return
   }
-  state.primarySport = id
+  if (state.primarySport === id) {
+    state.primarySport = null
+    delete state.formats[id]
+    delete state.doublesPlayers[id]
+  } else {
+    const prev = state.primarySport
+    if (prev) {
+      delete state.formats[prev]
+      delete state.doublesPlayers[prev]
+    }
+    state.primarySport = id
+  }
   sportError = ''
   render()
 }
@@ -799,8 +810,8 @@ function renderStep1(): string {
 
 function renderStep2(): string {
   const genderInvalid = Boolean(sportError && !state.gender)
-  const primaryInvalid = Boolean(
-    sportError && state.gender && !state.primarySport,
+  const sportsInvalid = Boolean(
+    sportError && state.gender && selectedSportsList().length === 0,
   )
   return `
     <div class="fade-step">
@@ -830,15 +841,15 @@ function renderStep2(): string {
         </button>
       </div>
 
-      <div class="section-label">${bi('Main sport — choose one', GU.mainSport)}</div>
+      <div class="section-label">${bi('Main sport — optional (choose one)', GU.mainSport)}</div>
       <p class="section-hint">
         ${
           state.gender === 'female'
-            ? bi('Pickleball (Football is Male only)', GU.mainHintFemale)
-            : bi('Football or Pickleball', GU.mainHintMale)
+            ? bi('Optional — Pickleball (Football is Male only)', GU.mainHintFemale)
+            : bi('Optional — Football or Pickleball', GU.mainHintMale)
         }
       </p>
-      <div class="choice-grid ${primaryInvalid ? 'is-invalid' : ''}" data-error-section="primary">
+      <div class="choice-grid ${sportsInvalid ? 'is-invalid' : ''}" data-error-section="primary">
         ${primarySportsForGender()
           .map((id) =>
             renderChoice(id, state.primarySport === id, false, 'primary'),
@@ -846,9 +857,9 @@ function renderStep2(): string {
           .join('')}
       </div>
 
-      <div class="section-label">${bi('Additional sports — optional (max 2)', GU.extraSports)}</div>
-      <p class="section-hint">${bi('Carrom, Chess, Table Tennis, Badminton — skip or pick up to 2', GU.extraHint)}</p>
-      <div class="choice-grid cols-3">
+      <div class="section-label">${bi('Additional sports — up to 2 (at least 1 sport overall)', GU.extraSports)}</div>
+      <p class="section-hint">${bi('Carrom, Chess, Table Tennis, Badminton — pick up to 2. At least one sport total is required.', GU.extraHint)}</p>
+      <div class="choice-grid cols-3 ${sportsInvalid ? 'is-invalid' : ''}" data-error-section="secondary">
         ${SECONDARY_SPORTS.map((id) => {
           const atLimit =
             !state.secondarySports.includes(id) &&
