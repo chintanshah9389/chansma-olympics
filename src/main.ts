@@ -27,7 +27,7 @@ import {
   onRealtimeUpdate,
 } from './realtime'
 import { destroyAdmin, isAdminRoute, renderAdmin } from './admin'
-import { GU, bi, biText } from './i18n'
+import { GU, bi, biText, bilingualHtml } from './i18n'
 import {
   iconAdmin,
   iconArrowLeft,
@@ -39,7 +39,6 @@ import {
   iconLive,
   iconMale,
   iconPhone,
-  iconPin,
   iconSingle,
   iconSpark,
   iconUser,
@@ -86,8 +85,7 @@ const state: FormState = {
 }
 
 let step: WizardStep = 1
-let detailErrors: Partial<Record<'fullName' | 'mobile' | 'location', string>> =
-  {}
+let detailErrors: Partial<Record<'fullName' | 'mobile', string>> = {}
 let sportError = ''
 let formatError = ''
 let doublesErrors: Partial<
@@ -103,6 +101,12 @@ let submitError = ''
 /** Shown on success screen after a completed registration */
 let lastReference = ''
 let lastRegisteredSports: SelectedSport[] = []
+/** Last step painted — used to skip re-animating when only errors update */
+let paintedStep: WizardStep | null = null
+/** Avoid blur→re-render stealing the Continue / Submit tap on mobile */
+let suppressBlurRenderUntil = 0
+/** After render, scroll/focus the first invalid field */
+let shouldRevealErrors = false
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
@@ -196,11 +200,9 @@ function buildSelectedSports(): SelectedSport[] {
 function validateDetails(): boolean {
   detailErrors = {}
   const name = state.fullName.trim()
-  const location = state.location.trim()
 
   // Step 1 is informational — mobile is collected but not validated here.
   if (!name) detailErrors.fullName = biText('Full name is required', GU.errFullName)
-  if (!location) detailErrors.location = biText('Location is required', GU.errLocation)
 
   return Object.keys(detailErrors).length === 0
 }
@@ -294,14 +296,12 @@ function validatePlayer1(
 function validateFormats(): boolean {
   formatError = ''
   doublesErrors = {}
+  let missingFormat = false
 
   for (const id of sportsNeedingPlayerDetails()) {
     if (needsFormat(id) && !state.formats[id]) {
-      formatError = biText(
-        'Select Single or Double for each racket sport',
-        GU.errSelectFormat,
-      )
-      return false
+      missingFormat = true
+      continue
     }
 
     if (needsPlayerDetailsOnly(id)) {
@@ -385,6 +385,14 @@ function validateFormats(): boolean {
     }
   }
 
+  if (missingFormat) {
+    formatError = biText(
+      'Select Single or Double for each racket sport',
+      GU.errSelectFormat,
+    )
+    return false
+  }
+
   if (Object.keys(doublesErrors).length > 0) {
     formatError = biText(
       'Fix player details — full name and mobile are required, and a mobile may already be registered for this sport',
@@ -417,6 +425,7 @@ function canSubmit(): { ok: boolean; message: string } {
 function goNext(): void {
   if (step === 1) {
     if (!validateDetails()) {
+      shouldRevealErrors = true
       render()
       return
     }
@@ -427,6 +436,7 @@ function goNext(): void {
 
   if (step === 2) {
     if (!validateSports()) {
+      shouldRevealErrors = true
       render()
       return
     }
@@ -449,12 +459,57 @@ function goNext(): void {
 
   if (step === 3) {
     if (!validateFormats()) {
+      shouldRevealErrors = true
       render()
       return
     }
     step = 4
     render()
   }
+}
+
+function redirectToSubmitError(message: string): void {
+  if (!state.gender) {
+    step = 2
+    sportError = message
+    submitError = ''
+    shouldRevealErrors = true
+    render()
+    return
+  }
+
+  const sports = buildSelectedSports()
+  for (const s of sports) {
+    const conflict = describeSportConflict(
+      s,
+      sportLabel(s.sportId),
+      state.mobile,
+    )
+    if (!conflict) continue
+
+    if (sportsNeedingPlayerDetails().includes(s.sportId)) {
+      step = 3
+      doublesErrors[s.sportId] = {
+        ...doublesErrors[s.sportId],
+        player1: {
+          ...doublesErrors[s.sportId]?.player1,
+          mobile: conflict,
+        },
+      }
+      formatError = conflict
+      submitError = ''
+    } else {
+      step = 4
+      submitError = conflict
+    }
+    shouldRevealErrors = true
+    render()
+    return
+  }
+
+  submitError = message
+  shouldRevealErrors = true
+  render()
 }
 
 function goBack(): void {
@@ -488,11 +543,13 @@ function setGender(gender: Gender): void {
 function setPrimary(id: SportId): void {
   if (!state.gender) {
     sportError = biText('Select Male or Female first', GU.errSelectGender)
+    shouldRevealErrors = true
     render()
     return
   }
   if (state.gender === 'female' && id === 'football') {
     sportError = biText('Football is not available for Female', GU.errFootballFemale)
+    shouldRevealErrors = true
     render()
     return
   }
@@ -504,6 +561,7 @@ function setPrimary(id: SportId): void {
 function toggleSecondary(id: SportId): void {
   if (!state.gender) {
     sportError = biText('Select Male or Female first', GU.errSelectGender)
+    shouldRevealErrors = true
     render()
     return
   }
@@ -534,8 +592,7 @@ function setFormat(id: SportId, format: PlayFormat): void {
 async function submit(): Promise<void> {
   const check = canSubmit()
   if (!check.ok) {
-    submitError = check.message
-    render()
+    redirectToSubmitError(check.message)
     return
   }
 
@@ -565,6 +622,7 @@ async function submit(): Promise<void> {
             'Could not save registration. Check API / database connection.',
             GU.errSaveFailed,
           )
+    shouldRevealErrors = true
     render()
   }
 }
@@ -589,6 +647,43 @@ function resetForm(): void {
   render()
 }
 
+function stepHasErrors(): boolean {
+  if (step === 1) return Boolean(detailErrors.fullName || detailErrors.mobile)
+  if (step === 2) return Boolean(sportError)
+  if (step === 3) {
+    return Boolean(formatError) || Object.keys(doublesErrors).length > 0
+  }
+  if (step === 4) return Boolean(submitError)
+  return false
+}
+
+function revealFormErrors(): void {
+  requestAnimationFrame(() => {
+    const target =
+      app.querySelector<HTMLElement>(
+        '.field.is-invalid input, input.is-invalid, .format-options.is-invalid, .choice-grid.is-invalid, .format-card.is-invalid, .review-item.is-error, .alert.is-error',
+      ) || app.querySelector<HTMLElement>('.error, .alert.is-error')
+
+    if (!target) return
+
+    const flashHost =
+      target.closest<HTMLElement>(
+        '.field, .format-card, .choice-grid, .format-options, .review-item, .alert',
+      ) || target
+
+    flashHost.classList.add('error-flash')
+    window.setTimeout(() => flashHost.classList.remove('error-flash'), 1600)
+
+    flashHost.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+    const input =
+      target instanceof HTMLInputElement
+        ? target
+        : flashHost.querySelector<HTMLInputElement>('input:not([type="hidden"])')
+    input?.focus({ preventScroll: true })
+  })
+}
+
 function progressIndex(): number {
   if (step === 5) return 4
   if (step === 4) return 3
@@ -598,13 +693,15 @@ function progressIndex(): number {
 
 function renderProgress(): string {
   const active = progressIndex()
+  const showError = stepHasErrors()
   return `
     <ol class="progress-track">
       ${STEP_LABELS.map((label, i) => {
         const stateClass =
           i < active ? 'is-done' : i === active ? 'is-active' : 'is-todo'
+        const errorClass = i === active && showError ? ' has-error' : ''
         return `
-        <li class="progress-item ${stateClass}">
+        <li class="progress-item ${stateClass}${errorClass}">
           <div class="progress-item-top">
             <span class="progress-dot" aria-hidden="true">${i < active ? '✓' : i + 1}</span>
             ${i < STEP_LABELS.length - 1 ? '<span class="progress-line" aria-hidden="true"><span></span></span>' : ''}
@@ -669,35 +766,28 @@ function renderStep1(): string {
       <h2 class="step-title"><span class="step-title-icon">${iconUser()}</span> ${bi('Enter your details', GU.detailsTitle)}</h2>
       <p class="step-sub">${bi('Basic information only — mobile is not validated on this step.', GU.detailsSub)}</p>
 
-      ${apiError ? `<div class="alert">${escapeHtml(apiError)}</div>` : ''}
+      ${apiError ? `<div class="alert is-error">${bilingualHtml(apiError)}</div>` : ''}
 
-      <div class="field field-icon">
+      <div class="field field-icon ${detailErrors.fullName ? 'is-invalid' : ''}">
         <label for="fullName">${bi('Full Name', GU.fullName)}</label>
         <div class="input-wrap">
           ${iconUser()}
           <input id="fullName" name="fullName" type="text" autocomplete="name"
+            class="${detailErrors.fullName ? 'is-invalid' : ''}"
             value="${escapeAttr(state.fullName)}" placeholder="${escapeAttr(biText('e.g. Rahul Sharma', GU.placeholderName))}" />
         </div>
-        ${detailErrors.fullName ? `<span class="error">${escapeHtml(detailErrors.fullName)}</span>` : ''}
+        ${detailErrors.fullName ? `<span class="error">${bilingualHtml(detailErrors.fullName)}</span>` : ''}
       </div>
 
-      <div class="field field-icon">
+      <div class="field field-icon ${detailErrors.mobile ? 'is-invalid' : ''}">
         <label for="mobile">${bi('Mobile Number', GU.mobile)}</label>
         <div class="input-wrap">
           ${iconPhone()}
           <input id="mobile" name="mobile" type="tel" inputmode="numeric" autocomplete="tel"
+            class="${detailErrors.mobile ? 'is-invalid' : ''}"
             value="${escapeAttr(state.mobile)}" placeholder="${escapeAttr(biText('Mobile number', GU.placeholderMobile))}" maxlength="15" />
         </div>
-      </div>
-
-      <div class="field field-icon">
-        <label for="location">${bi('Location', GU.location)}</label>
-        <div class="input-wrap">
-          ${iconPin()}
-          <input id="location" name="location" type="text" autocomplete="address-level2"
-            value="${escapeAttr(state.location)}" placeholder="${escapeAttr(biText('City / Area', GU.placeholderLocation))}" />
-        </div>
-        ${detailErrors.location ? `<span class="error">${escapeHtml(detailErrors.location)}</span>` : ''}
+        ${detailErrors.mobile ? `<span class="error">${bilingualHtml(detailErrors.mobile)}</span>` : ''}
       </div>
 
       <div class="actions">
@@ -708,16 +798,20 @@ function renderStep1(): string {
 }
 
 function renderStep2(): string {
+  const genderInvalid = Boolean(sportError && !state.gender)
+  const primaryInvalid = Boolean(
+    sportError && state.gender && !state.primarySport,
+  )
   return `
     <div class="fade-step">
       <h2 class="step-title">${bi('Select sports', GU.sportsTitle)}</h2>
       <p class="step-sub">${bi('Choose Male or Female first — men’s and women’s tournaments have separate slot counts.', GU.sportsSub)}</p>
 
-      ${sportError ? `<div class="alert">${escapeHtml(sportError)}</div>` : ''}
+      ${sportError ? `<div class="alert is-error">${bilingualHtml(sportError)}</div>` : ''}
 
       <div class="section-label">${bi('Gender — choose one', GU.genderLabel)}</div>
       <p class="section-hint">${bi('Men’s and Women’s tournaments are counted separately', GU.genderHint)}</p>
-      <div class="choice-grid">
+      <div class="choice-grid ${genderInvalid ? 'is-invalid' : ''}" data-error-section="gender">
         <button type="button"
           class="choice choice-gender ${state.gender === 'male' ? 'is-selected' : ''}"
           data-action="gender" data-gender="male">
@@ -744,7 +838,7 @@ function renderStep2(): string {
             : bi('Football or Pickleball', GU.mainHintMale)
         }
       </p>
-      <div class="choice-grid">
+      <div class="choice-grid ${primaryInvalid ? 'is-invalid' : ''}" data-error-section="primary">
         ${primarySportsForGender()
           .map((id) =>
             renderChoice(id, state.primarySport === id, false, 'primary'),
@@ -790,21 +884,23 @@ function renderPlayerFields(
       <div class="player-block">
         <p class="section-label" style="margin:0 0 0.55rem">${bi('Player details', GU.playerDetails)}</p>
         <div class="player-row">
-          <div class="field">
+          <div class="field ${errors.player1?.fullName ? 'is-invalid' : ''}">
             <label for="player1-name-${id}">${bi('Full Name', GU.fullName)}</label>
             <input id="player1-name-${id}" type="text"
+              class="${errors.player1?.fullName ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="fullName"
               value="${escapeAttr(players.player1.fullName)}"
               placeholder="${escapeAttr(biText('Full name', GU.placeholderName))}" required />
-            ${errors.player1?.fullName ? `<span class="error">${escapeHtml(errors.player1.fullName)}</span>` : ''}
+            ${errors.player1?.fullName ? `<span class="error">${bilingualHtml(errors.player1.fullName)}</span>` : ''}
           </div>
-          <div class="field">
+          <div class="field ${errors.player1?.mobile ? 'is-invalid' : ''}">
             <label for="player1-mobile-${id}">${bi('Mobile Number', GU.mobile)}</label>
             <input id="player1-mobile-${id}" type="tel" inputmode="numeric"
+              class="${errors.player1?.mobile ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="mobile"
               value="${escapeAttr(players.player1.mobile)}"
               placeholder="${escapeAttr(biText('Mobile number', GU.placeholderMobile))}" maxlength="15" required />
-            ${errors.player1?.mobile ? `<span class="error">${escapeHtml(errors.player1.mobile)}</span>` : ''}
+            ${errors.player1?.mobile ? `<span class="error">${bilingualHtml(errors.player1.mobile)}</span>` : ''}
           </div>
         </div>
       </div>
@@ -831,21 +927,23 @@ function renderPlayerFields(
       <div class="player-block">
         <p class="section-label" style="margin:0 0 0.55rem">${bi('Player 2', GU.player2)}</p>
         <div class="player-row">
-          <div class="field">
+          <div class="field ${errors.player2?.fullName ? 'is-invalid' : ''}">
             <label for="player2-name-${id}">${bi('Full Name', GU.fullName)}</label>
             <input id="player2-name-${id}" type="text"
+              class="${errors.player2?.fullName ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="fullName"
               value="${escapeAttr(players.player2.fullName)}"
               placeholder="${escapeAttr(biText('Player 2 full name', 'ખેલાડી ૨ પૂરું નામ'))}" />
-            ${errors.player2?.fullName ? `<span class="error">${escapeHtml(errors.player2.fullName)}</span>` : ''}
+            ${errors.player2?.fullName ? `<span class="error">${bilingualHtml(errors.player2.fullName)}</span>` : ''}
           </div>
-          <div class="field">
+          <div class="field ${errors.player2?.mobile ? 'is-invalid' : ''}">
             <label for="player2-mobile-${id}">${bi('Mobile Number', GU.mobile)}</label>
             <input id="player2-mobile-${id}" type="tel" inputmode="numeric"
+              class="${errors.player2?.mobile ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="mobile"
               value="${escapeAttr(players.player2.mobile)}"
               placeholder="${escapeAttr(biText('Player 2 mobile number', 'ખેલાડી ૨ મોબાઇલ નંબર'))}" maxlength="15" />
-            ${errors.player2?.mobile ? `<span class="error">${escapeHtml(errors.player2.mobile)}</span>` : ''}
+            ${errors.player2?.mobile ? `<span class="error">${bilingualHtml(errors.player2.mobile)}</span>` : ''}
           </div>
         </div>
       </div>
@@ -869,7 +967,7 @@ function renderStep3(): string {
         ${category ? `${bi(`Live ${category} slot counts update instantly.`, `લાઇવ ${category === 'Male' ? GU.men : GU.women} સ્લોટ તરત અપડેટ થાય છે.`)}` : ''}
       </p>
 
-      ${formatError ? `<div class="alert">${escapeHtml(formatError)}</div>` : ''}
+      ${formatError ? `<div class="alert is-error">${bilingualHtml(formatError)}</div>` : ''}
 
       ${needing
         .map((id) => {
@@ -883,8 +981,11 @@ function renderStep3(): string {
             player2: emptyDoublesPlayer(),
           }
           const errors = doublesErrors[id] ?? {}
+          const missingFormat = needsFormat(id) && !format && Boolean(formatError)
+          const cardInvalid =
+            Boolean(errors.player1 || errors.player2) || missingFormat
           return `
-        <div class="format-card ${isSingle || playerOnly ? 'is-single-mode' : ''}">
+        <div class="format-card ${isSingle || playerOnly ? 'is-single-mode' : ''} ${cardInvalid ? 'is-invalid' : ''}" data-sport-card="${id}">
           <div class="format-card-header">
             <h3><span class="sport-heading">${sportIcon(id)} ${sportBi(id)}</span></h3>
             ${slotBadgeHtml(id)}
@@ -893,7 +994,7 @@ function renderStep3(): string {
             playerOnly
               ? `<p class="step-sub" style="margin:0 0 0.85rem">${bi(`Enter the player full name and mobile for ${sportLabel(id)}.`, GU.playerOnlyHint(sportBiText(id)))}</p>`
               : `
-          <div class="format-options">
+          <div class="format-options ${missingFormat ? 'is-invalid' : ''}">
             <button type="button"
               class="choice choice-format ${isSingle ? 'is-selected' : ''}"
               data-action="format" data-sport="${id}" data-format="single">
@@ -963,12 +1064,12 @@ function renderStep4(): string {
 
       <div class="summary-box">
         <p><strong>${escapeHtml(state.fullName.trim())}</strong></p>
-        <p>${escapeHtml(normalizeMobile(state.mobile))} · ${escapeHtml(state.location.trim())}</p>
+        <p>${escapeHtml(normalizeMobile(state.mobile))}</p>
         <p style="margin-top:0.55rem;opacity:0.85">${bi(`${category} tournament`, `${category === 'Male' ? GU.male : category === 'Female' ? GU.female : category} ${GU.tournament}`)}</p>
       </div>
 
       ${hasWaiting ? `<div class="alert" style="background:#fff8e6;border-color:rgba(212,160,23,0.35);color:#8a6a00">${bi('Some sports are full — you will be added to the waiting list for those.', GU.waitingAlert)}</div>` : ''}
-      ${submitError || !check.ok ? `<div class="alert">${escapeHtml(submitError || check.message)}</div>` : ''}
+      ${submitError || !check.ok ? `<div class="alert is-error">${bilingualHtml(submitError || check.message)}</div>` : ''}
 
       <div class="review-list">
         ${sports
@@ -981,7 +1082,7 @@ function renderStep4(): string {
             const blocked = !!existing
             const formatText = formatLabel(s)
             return `
-              <div class="review-item ${blocked ? 'blocked' : ''} ${s.status === 'waiting' && !blocked ? 'is-waiting' : ''}">
+              <div class="review-item ${blocked ? 'blocked is-error' : ''} ${s.status === 'waiting' && !blocked ? 'is-waiting' : ''}">
                 <div class="review-sport">
                   <span class="review-sport-icon">${sportIcon(s.sportId)}</span>
                   <div>
@@ -989,7 +1090,7 @@ function renderStep4(): string {
                     <p class="meta">${escapeHtml(formatText)}</p>
                     ${
                       existing
-                        ? `<p class="existing-detail">${escapeHtml(existing)}</p>`
+                        ? `<p class="existing-detail">${bilingualHtml(existing)}</p>`
                         : s.status === 'waiting'
                           ? `<p class="existing-detail" style="color:#8a6a00">${bi('No open slots — registered as waiting for this sport.', GU.waitingDetail)}</p>`
                           : ''
@@ -1077,7 +1178,13 @@ function escapeAttr(value: string): string {
 }
 
 function render(): void {
-  const body =
+  const shell = app.querySelector<HTMLElement>('.shell:not(.shell-admin)')
+  const panel = shell?.querySelector<HTMLElement>('.panel')
+  const panelBody = panel?.querySelector<HTMLElement>('.panel-body')
+  const canPatch = Boolean(shell && panel && panelBody)
+  const stepChanged = !canPatch || paintedStep !== step
+
+  let body =
     step === 1
       ? renderStep1()
       : step === 2
@@ -1088,7 +1195,27 @@ function render(): void {
             ? renderStep4()
             : renderStep5()
 
-  app.innerHTML = `
+  if (!stepChanged) {
+    body = body.replace(
+      'class="fade-step"',
+      'class="fade-step is-static"',
+    )
+  }
+
+  if (canPatch && shell && panel && panelBody) {
+    const scrollY = shouldRevealErrors ? null : window.scrollY
+    const progress = panel.querySelector('.progress-track')
+    if (step === 5) {
+      progress?.remove()
+    } else if (progress) {
+      progress.outerHTML = renderProgress()
+    } else {
+      panel.insertAdjacentHTML('afterbegin', renderProgress())
+    }
+    panelBody.innerHTML = body
+    if (scrollY !== null) window.scrollTo(0, scrollY)
+  } else {
+    app.innerHTML = `
     <a class="nav-corner nav-corner-left" href="#/admin">${iconAdmin()} Admin</a>
 
     <div class="shell">
@@ -1108,11 +1235,23 @@ function render(): void {
       </main>
     </div>
   `
+  }
 
+  paintedStep = step
   bindEvents()
 
   if (step === 3) startLiveSlotUpdates()
   else stopLiveSlotUpdates()
+
+  if (shouldRevealErrors) {
+    shouldRevealErrors = false
+    // Skip preserving scroll when we need to jump to the error
+    revealFormErrors()
+  }
+}
+
+function doublesErrorSignature(): string {
+  return JSON.stringify(doublesErrors)
 }
 
 function checkPlayerMobileConflict(
@@ -1184,22 +1323,30 @@ function bindEvents(): void {
         players[doublesPlayer][doublesField] = input.value
         if (doublesErrors[doublesSport]?.[doublesPlayer]?.[doublesField]) {
           delete doublesErrors[doublesSport]![doublesPlayer]![doublesField]
-          input.parentElement?.querySelector('.error')?.remove()
+          const field = input.closest('.field')
+          field?.classList.remove('is-invalid')
+          input.classList.remove('is-invalid')
+          field?.querySelector('.error')?.remove()
         }
         return
       }
 
-      const key = input.name as 'fullName' | 'mobile' | 'location'
-      if (key === 'fullName' || key === 'mobile' || key === 'location') {
+      const key = input.name as 'fullName' | 'mobile'
+      if (key === 'fullName' || key === 'mobile') {
         state[key] = input.value
         if (detailErrors[key]) {
           delete detailErrors[key]
-          input.parentElement?.querySelector('.error')?.remove()
+          const field = input.closest('.field')
+          field?.classList.remove('is-invalid')
+          input.classList.remove('is-invalid')
+          field?.querySelector('.error')?.remove()
         }
       }
     })
 
     input.addEventListener('blur', () => {
+      if (Date.now() < suppressBlurRenderUntil) return
+
       const doublesSport = input.dataset.doublesSport as SportId | undefined
       const doublesPlayer = input.dataset.doublesPlayer as
         | 'player1'
@@ -1214,13 +1361,21 @@ function bindEvents(): void {
 
       const players = ensureDoublesPlayers(doublesSport)
       players[doublesPlayer][doublesField] = input.value
-      // Re-check Player 1 & Player 2 for every sport on this page
+      const before = doublesErrorSignature()
       checkAllPlayerMobileConflictsOnPage()
-      render()
+      if (doublesErrorSignature() !== before) {
+        render()
+      }
     })
   })
 
   app.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((btn) => {
+    // Keep focus on the button so input blur does not wipe the DOM before click (mobile).
+    btn.addEventListener('pointerdown', (event) => {
+      suppressBlurRenderUntil = Date.now() + 400
+      event.preventDefault()
+    })
+
     btn.addEventListener('click', () => {
       const action = btn.dataset.action
       if (action === 'next') goNext()

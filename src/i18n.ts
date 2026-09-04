@@ -1,11 +1,28 @@
 /** Bilingual EN / Gujarati helpers for the public registration form only. */
 
 export function bi(en: string, gu: string): string {
-  return `<span class="i18n-line"><span class="i18n-en">${en}</span><span class="i18n-sep"> / </span><span class="i18n-gu">${gu}</span></span>`
+  return `<span class="i18n-line"><span class="i18n-en">${en}</span><span class="i18n-sep" aria-hidden="true">/</span><span class="i18n-gu">${gu}</span></span>`
 }
 
 export function biText(en: string, gu: string): string {
   return `${en} / ${gu}`
+}
+
+/** Turn a bi() HTML string or biText plain "EN / GU" into stacked bilingual markup. */
+export function bilingualHtml(message: string): string {
+  if (message.includes('i18n-line')) return message
+  const sep = ' / '
+  const idx = message.indexOf(sep)
+  if (idx === -1) return escapePlain(message)
+  return bi(escapePlain(message.slice(0, idx)), escapePlain(message.slice(idx + sep.length)))
+}
+
+function escapePlain(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
 }
 
 export const GU = {

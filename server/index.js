@@ -269,7 +269,7 @@ app.post('/api/registrations', async (req, res) => {
     const sports = Array.isArray(body.sports) ? body.sports : []
     const createdAt = body.createdAt || new Date().toISOString()
 
-    if (!id || !fullName || !location || sports.length === 0) {
+    if (!id || !fullName || sports.length === 0) {
       res.status(400).json({ error: 'Missing required registration fields' })
       return
     }

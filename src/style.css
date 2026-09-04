@@ -62,9 +62,20 @@ body::before {
   position: relative;
   z-index: 1;
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   padding: 1.5rem;
+}
+
+/* Admin: full-page scroll, top-aligned, not vertically centered */
+#app:has(.shell-admin) {
+  display: block;
+  place-items: unset;
+  padding: 3.5rem 1.25rem 1.5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .shell {
@@ -316,10 +327,80 @@ body::before {
 }
 
 .field .error {
+  display: block;
   color: var(--danger);
   font-size: 0.82rem;
   font-weight: 600;
   line-height: 1.35;
+  margin-top: 0.4rem;
+}
+
+.field.is-invalid label {
+  color: var(--danger);
+}
+
+.field.is-invalid input,
+input.is-invalid,
+.field.is-invalid .input-wrap {
+  border-color: rgba(180, 35, 24, 0.55) !important;
+  background: #fff8f7 !important;
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.12);
+}
+
+.choice-grid.is-invalid,
+.format-options.is-invalid {
+  padding: 0.45rem;
+  margin: -0.45rem;
+  border-radius: 16px;
+  outline: 2px solid rgba(180, 35, 24, 0.45);
+  background: rgba(180, 35, 24, 0.06);
+}
+
+.format-card.is-invalid {
+  border-color: rgba(180, 35, 24, 0.4);
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.1);
+}
+
+.review-item.is-error,
+.review-item.blocked {
+  border-color: rgba(180, 35, 24, 0.35);
+  background: #fff6f4;
+}
+
+.alert.is-error {
+  scroll-margin-top: 5rem;
+}
+
+.field.is-invalid,
+.format-card.is-invalid,
+.choice-grid.is-invalid,
+.format-options.is-invalid,
+.review-item.is-error {
+  scroll-margin-top: 5rem;
+}
+
+@keyframes error-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(180, 35, 24, 0);
+  }
+  35% {
+    box-shadow: 0 0 0 6px rgba(180, 35, 24, 0.22);
+  }
+}
+
+.error-flash {
+  animation: error-flash 1.1s ease;
+}
+
+.progress-item.has-error .progress-dot {
+  background: var(--danger);
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.2);
+}
+
+.progress-item.has-error .progress-label {
+  color: var(--danger);
 }
 
 .section-label {
@@ -872,6 +953,8 @@ body::before {
 /* —— Admin —— */
 .shell-admin {
   width: min(1440px, 100%);
+  max-width: 100%;
+  margin: 0 auto;
 }
 
 .brand-admin {
@@ -880,6 +963,8 @@ body::before {
 
 .panel-admin {
   padding: 0;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 .capacity-panel {
@@ -1201,6 +1286,9 @@ body::before {
 .admin-table-wrap {
   overflow: auto;
   max-height: min(72vh, 880px);
+  max-height: min(72dvh, 880px);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   border-top: 1px solid var(--line);
   background:
     linear-gradient(90deg, #f7f2e8 30%, transparent) 0 0 / 24px 100% no-repeat local,
@@ -1470,13 +1558,7 @@ body::before {
   }
 
   .step-sub .i18n-line {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .step-sub .i18n-sep {
-    display: none;
+    gap: 0.55rem;
   }
 
   .section-label .i18n-line,
@@ -1484,7 +1566,7 @@ body::before {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.12rem;
+    gap: 0.35rem;
   }
 
   .section-label .i18n-sep,
@@ -1498,7 +1580,8 @@ body::before {
   }
 
   .field label .i18n-sep {
-    display: inline;
+    display: inline-block;
+    margin: 0 0.45em;
   }
 
   .section-hint {
@@ -1697,6 +1780,20 @@ body::before {
   }
 
   /* Admin on phone */
+  #app:has(.shell-admin) {
+    padding: 3.25rem 0.5rem calc(1rem + env(safe-area-inset-bottom, 0px));
+    padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
+  }
+
+  .shell-admin {
+    width: 100%;
+  }
+
+  .panel-admin {
+    border-radius: 14px;
+  }
+
   .capacity-panel {
     padding: 1rem 0.9rem 1.1rem;
   }
@@ -1724,12 +1821,29 @@ body::before {
     width: 100%;
   }
 
+  .capacity-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .admin-toolbar {
     padding: 0.9rem;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-stats {
+    gap: 0.5rem 0.85rem;
+    font-size: 0.82rem;
   }
 
   .admin-actions {
     width: 100%;
+  }
+
+  .admin-actions .btn {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .admin-search {
@@ -1745,6 +1859,33 @@ body::before {
   .filter-label {
     min-width: 100%;
     margin-bottom: 0.15rem;
+  }
+
+  .filter-hint {
+    font-size: 0.72rem;
+  }
+
+  .admin-table-wrap {
+    max-height: min(58dvh, 520px);
+    /* Horizontal scroll cue on phone */
+    border-radius: 0;
+  }
+
+  /* Sticky left columns eat too much width on phones */
+  .admin-table th.col-num,
+  .admin-table td.col-num,
+  .admin-table th.col-seat,
+  .admin-table td.col-seat {
+    position: static;
+    left: auto;
+    box-shadow: none;
+  }
+
+  .admin-table thead th.col-num,
+  .admin-table thead th.col-seat {
+    position: sticky;
+    top: 0;
+    left: auto;
   }
 
   .admin-table {
@@ -2032,6 +2173,10 @@ body::before {
   animation: fade-step 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+.fade-step.is-static {
+  animation: none;
+}
+
 @keyframes fade-step {
   from {
     opacity: 0;
@@ -2071,7 +2216,9 @@ body::before {
 }
 
 .i18n-sep {
-  opacity: 0.55;
+  display: inline-block;
+  margin: 0 0.5em;
+  opacity: 0.5;
   font-weight: 600;
 }
 
@@ -2087,12 +2234,6 @@ body::before {
   display: inline;
 }
 
-.step-sub .i18n-gu,
-.section-hint .i18n-gu,
-.choice-meta .i18n-gu {
-  display: inline;
-}
-
 .field label .i18n-line {
   display: inline;
   font-size: inherit;
@@ -2101,4 +2242,56 @@ body::before {
 .btn-inner .i18n-line {
   display: inline;
   text-align: left;
+}
+
+/* Paragraphs / alerts / errors: EN then GU with clear breathing room */
+.step-sub .i18n-line,
+.section-hint .i18n-line,
+.organizer-notice .i18n-line,
+.organizer-notice p .i18n-line,
+.alert .i18n-line,
+.error .i18n-line,
+.reference-hint .i18n-line,
+.success-screen p .i18n-line {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.step-sub .i18n-sep,
+.section-hint .i18n-sep,
+.organizer-notice .i18n-sep,
+.alert .i18n-sep,
+.error .i18n-sep,
+.reference-hint .i18n-sep,
+.success-screen p .i18n-sep {
+  display: none;
+}
+
+.step-sub .i18n-gu,
+.section-hint .i18n-gu,
+.organizer-notice .i18n-gu,
+.alert .i18n-gu,
+.error .i18n-gu,
+.reference-hint .i18n-gu,
+.success-screen p .i18n-gu {
+  display: block;
+  line-height: 1.45;
+  opacity: 0.9;
+}
+
+.step-sub .i18n-en,
+.section-hint .i18n-en,
+.organizer-notice .i18n-en,
+.alert .i18n-en,
+.error .i18n-en {
+  display: block;
+  line-height: 1.45;
+}
+
+.success-screen p .i18n-en {
+  display: block;
+  line-height: 1.45;
 }
