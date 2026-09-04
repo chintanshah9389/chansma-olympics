@@ -958,6 +958,8 @@ function render(): void {
             : renderStep5()
 
   app.innerHTML = `
+    <a class="nav-corner nav-corner-left" href="#/admin">Admin</a>
+
     <div class="shell">
       <header class="brand">
         <div class="brand-mark">

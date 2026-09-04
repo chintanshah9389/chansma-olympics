@@ -680,6 +680,39 @@ body::before {
   }
 }
 
+/* —— Corner nav (Admin / Form) —— */
+.nav-corner {
+  position: fixed;
+  top: 1rem;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
+  border: 1.5px solid rgba(11, 31, 58, 0.14);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  color: var(--navy);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-decoration: none;
+  box-shadow: 0 8px 24px rgba(6, 21, 40, 0.12);
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.nav-corner-left {
+  left: 1rem;
+}
+
+.nav-corner:hover {
+  transform: translateY(-1px);
+  background: var(--white);
+  border-color: var(--gold);
+}
+
 /* —— Admin —— */
 .shell-admin {
   width: min(1280px, 100%);
@@ -699,8 +732,7 @@ body::before {
   align-items: center;
   justify-content: space-between;
   gap: 0.85rem 1.25rem;
-  padding: 1.1rem 1.25rem;
-  border-bottom: 1px solid var(--line);
+  padding: 1.1rem 1.25rem 0.85rem;
   background: linear-gradient(180deg, rgba(11, 31, 58, 0.04), transparent);
 }
 
@@ -748,6 +780,61 @@ body::before {
   justify-content: center;
   padding: 0.65rem 0.95rem;
   font-size: 0.85rem;
+}
+
+.admin-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0 1.25rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+}
+
+.filter-label {
+  flex: 0 0 auto;
+  min-width: 3.5rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.filter-chip {
+  appearance: none;
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--cream);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.filter-chip:hover {
+  border-color: rgba(212, 160, 23, 0.55);
+}
+
+.filter-chip.is-active {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--white);
 }
 
 .admin-table-wrap {
@@ -854,6 +941,13 @@ body::before {
 
   .btn-ghost {
     width: 100%;
+  }
+
+  .nav-corner {
+    top: 0.65rem;
+    left: 0.65rem;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.72rem;
   }
 
   .admin-actions {

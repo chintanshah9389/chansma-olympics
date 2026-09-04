@@ -3,14 +3,20 @@ import {
   getStorageError,
   refreshRegistrations,
 } from './storage'
-import { genderLabel, sportLabel } from './sports'
-import type { Registration, SelectedSport } from './types'
+import { SPORTS, genderLabel, sportLabel } from './sports'
+import type { Gender, Registration, SelectedSport, SportId, SportSeatStatus } from './types'
 import { onRealtimeUpdate } from './realtime'
 
 type FlatRow = {
   registration: Registration
   sport: SelectedSport | null
 }
+
+type SportFilter = 'all' | SportId
+type GenderFilter = 'all' | Gender
+type StatusFilter = 'all' | SportSeatStatus
+
+const ALL_SPORT_IDS = Object.keys(SPORTS) as SportId[]
 
 function escapeHtml(value: string): string {
   return value
@@ -29,7 +35,10 @@ function formatWhen(iso: string): string {
   })
 }
 
-function formatLabel(format: SelectedSport['format'], sportId: SelectedSport['sportId']): string {
+function formatLabel(
+  format: SelectedSport['format'],
+  sportId: SelectedSport['sportId'],
+): string {
   if (sportId === 'football') return 'Team'
   if (format === 'double') return 'Doubles'
   return 'Singles'
@@ -72,12 +81,28 @@ function matchesQuery(row: FlatRow, q: string): boolean {
   return hay.includes(q)
 }
 
+function matchesFilters(
+  row: FlatRow,
+  sport: SportFilter,
+  gender: GenderFilter,
+  status: StatusFilter,
+): boolean {
+  if (gender !== 'all' && row.registration.gender !== gender) return false
+  if (sport !== 'all' && row.sport?.sportId !== sport) return false
+  if (status !== 'all' && row.sport?.status !== status) return false
+  return true
+}
+
 function rowHtml(row: FlatRow, index: number): string {
   const r = row.registration
   const s = row.sport
   const status = s?.status ?? '—'
   const statusClass =
-    status === 'waiting' ? 'is-waiting' : status === 'confirmed' ? 'is-confirmed' : ''
+    status === 'waiting'
+      ? 'is-waiting'
+      : status === 'confirmed'
+        ? 'is-confirmed'
+        : ''
 
   return `
     <tr>
@@ -154,7 +179,18 @@ function downloadCsv(rows: FlatRow[]): void {
   URL.revokeObjectURL(url)
 }
 
+function filterChip(
+  label: string,
+  active: boolean,
+  attrs: string,
+): string {
+  return `<button type="button" class="filter-chip${active ? ' is-active' : ''}" ${attrs}>${escapeHtml(label)}</button>`
+}
+
 let searchQuery = ''
+let sportFilter: SportFilter = 'all'
+let genderFilter: GenderFilter = 'all'
+let statusFilter: StatusFilter = 'all'
 let unsubRealtime: (() => void) | null = null
 
 export function destroyAdmin(): void {
@@ -170,16 +206,35 @@ export function renderAdmin(root: HTMLElement): void {
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )
   const allRows = flattenRows(regs)
-  const rows = allRows.filter((row) => matchesQuery(row, searchQuery.trim().toLowerCase()))
+  const rows = allRows.filter(
+    (row) =>
+      matchesFilters(row, sportFilter, genderFilter, statusFilter) &&
+      matchesQuery(row, searchQuery.trim().toLowerCase()),
+  )
+
+  const sportCounts = Object.fromEntries(
+    ALL_SPORT_IDS.map((id) => [
+      id,
+      allRows.filter((row) => row.sport?.sportId === id).length,
+    ]),
+  ) as Record<SportId, number>
+
+  const filtersActive =
+    sportFilter !== 'all' ||
+    genderFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    Boolean(searchQuery.trim())
 
   root.innerHTML = `
+    <a class="nav-corner nav-corner-left" href="#/">← Form</a>
+
     <div class="shell shell-admin">
       <header class="brand brand-admin">
         <div class="brand-mark">
           <div class="brand-ring" aria-hidden="true"></div>
         </div>
         <h1>CHANSMA OLYMPIC</h1>
-        <p>Registration Admin</p>
+        <p>Admin dashboard · all registrations</p>
       </header>
 
       <main class="panel panel-admin">
@@ -187,7 +242,7 @@ export function renderAdmin(root: HTMLElement): void {
           <div class="admin-stats">
             <span><strong>${regs.length}</strong> registrations</span>
             <span><strong>${allRows.length}</strong> sport entries</span>
-            ${searchQuery ? `<span>Showing <strong>${rows.length}</strong></span>` : ''}
+            <span>Showing <strong>${rows.length}</strong></span>
           </div>
           <div class="admin-actions">
             <input
@@ -200,7 +255,43 @@ export function renderAdmin(root: HTMLElement): void {
             />
             <button type="button" class="btn btn-ghost" data-admin="refresh">Refresh</button>
             <button type="button" class="btn btn-ghost" data-admin="csv">Export CSV</button>
-            <a class="btn btn-primary" href="#/">Registration form</a>
+            ${
+              filtersActive
+                ? `<button type="button" class="btn btn-ghost" data-admin="clear">Clear filters</button>`
+                : ''
+            }
+          </div>
+        </div>
+
+        <div class="admin-filters">
+          <div class="filter-row">
+            <span class="filter-label">Sport</span>
+            <div class="filter-chips">
+              ${filterChip(`All (${allRows.length})`, sportFilter === 'all', 'data-filter-sport="all"')}
+              ${ALL_SPORT_IDS.map((id) =>
+                filterChip(
+                  `${sportLabel(id)} (${sportCounts[id]})`,
+                  sportFilter === id,
+                  `data-filter-sport="${id}"`,
+                ),
+              ).join('')}
+            </div>
+          </div>
+          <div class="filter-row">
+            <span class="filter-label">Gender</span>
+            <div class="filter-chips">
+              ${filterChip('All', genderFilter === 'all', 'data-filter-gender="all"')}
+              ${filterChip('Male', genderFilter === 'male', 'data-filter-gender="male"')}
+              ${filterChip('Female', genderFilter === 'female', 'data-filter-gender="female"')}
+            </div>
+          </div>
+          <div class="filter-row">
+            <span class="filter-label">Status</span>
+            <div class="filter-chips">
+              ${filterChip('All', statusFilter === 'all', 'data-filter-status="all"')}
+              ${filterChip('Confirmed', statusFilter === 'confirmed', 'data-filter-status="confirmed"')}
+              ${filterChip('Waiting', statusFilter === 'waiting', 'data-filter-status="waiting"')}
+            </div>
           </div>
         </div>
 
@@ -233,7 +324,7 @@ export function renderAdmin(root: HTMLElement): void {
               ${
                 rows.length
                   ? rows.map((row, i) => rowHtml(row, i)).join('')
-                  : `<tr><td colspan="13" class="admin-empty">No registrations yet.</td></tr>`
+                  : `<tr><td colspan="13" class="admin-empty">No rows match these filters.</td></tr>`
               }
             </tbody>
           </table>
@@ -254,6 +345,27 @@ export function renderAdmin(root: HTMLElement): void {
     }
   })
 
+  root.querySelectorAll<HTMLButtonElement>('[data-filter-sport]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      sportFilter = (btn.dataset.filterSport || 'all') as SportFilter
+      renderAdmin(root)
+    })
+  })
+
+  root.querySelectorAll<HTMLButtonElement>('[data-filter-gender]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      genderFilter = (btn.dataset.filterGender || 'all') as GenderFilter
+      renderAdmin(root)
+    })
+  })
+
+  root.querySelectorAll<HTMLButtonElement>('[data-filter-status]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      statusFilter = (btn.dataset.filterStatus || 'all') as StatusFilter
+      renderAdmin(root)
+    })
+  })
+
   root.querySelectorAll<HTMLButtonElement>('[data-admin]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const action = btn.dataset.admin
@@ -261,6 +373,12 @@ export function renderAdmin(root: HTMLElement): void {
         void refreshRegistrations().then(() => renderAdmin(root))
       } else if (action === 'csv') {
         downloadCsv(rows)
+      } else if (action === 'clear') {
+        searchQuery = ''
+        sportFilter = 'all'
+        genderFilter = 'all'
+        statusFilter = 'all'
+        renderAdmin(root)
       }
     })
   })
