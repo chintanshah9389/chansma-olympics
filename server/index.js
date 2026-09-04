@@ -207,6 +207,57 @@ async function recalculateSeatStatuses() {
   }
 }
 
+function normalizeMobileDigits(value) {
+  return String(value || '').replace(/\D/g, '')
+}
+
+/** Mobiles tied to one sport row (players + registration contact). */
+function sportEntryMobiles(entry, regMobile) {
+  return [
+    ...new Set(
+      [
+        normalizeMobileDigits(entry?.player1Mobile),
+        normalizeMobileDigits(entry?.player2Mobile),
+        normalizeMobileDigits(regMobile),
+      ].filter(Boolean),
+    ),
+  ]
+}
+
+/**
+ * Block if registration contact or any player mobile is already in that sport.
+ * Same number cannot enter the same sport twice.
+ */
+async function findRegistrationMobileConflict(regMobile, sports) {
+  const result = await pool.query(
+    `SELECT id, full_name, mobile, sports FROM registrations`,
+  )
+
+  for (const sport of sports) {
+    const sportId = sport?.sportId
+    if (!sportId || !SPORT_IDS.includes(sportId)) continue
+
+    const targets = sportEntryMobiles(sport, regMobile)
+    if (targets.length === 0) continue
+
+    for (const row of result.rows) {
+      const existingSports = Array.isArray(row.sports) ? row.sports : []
+      const entry = existingSports.find((s) => s?.sportId === sportId)
+      if (!entry) continue
+
+      const existing = sportEntryMobiles(entry, row.mobile)
+      const matched = targets.find((m) => existing.includes(m))
+      if (matched) {
+        const sportName = sportId
+        const who = row.full_name || matched
+        return `Already registered: ${who} for ${sportName} (mobile ${matched}).`
+      }
+    }
+  }
+
+  return null
+}
+
 wss.on('connection', (socket) => {
   socket.send(JSON.stringify({ type: 'connected' }))
 })
@@ -271,6 +322,12 @@ app.post('/api/registrations', async (req, res) => {
 
     if (!id || !fullName || sports.length === 0) {
       res.status(400).json({ error: 'Missing required registration fields' })
+      return
+    }
+
+    const conflict = await findRegistrationMobileConflict(mobile, sports)
+    if (conflict) {
+      res.status(409).json({ error: conflict })
       return
     }
 

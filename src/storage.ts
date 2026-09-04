@@ -202,8 +202,11 @@ function playerLabel(name?: string, mobile?: string): string {
 }
 
 /**
- * Clear message when a player is already registered for a sport,
+ * Clear message when a player / contact mobile is already registered for a sport,
  * including their partner for doubles.
+ *
+ * Always checks: Player 1 mobile, Player 2 mobile (doubles), and registration contact mobile.
+ * Same number cannot enter the same sport twice (any gender).
  */
 export function describeSportConflict(
   sport: SelectedSport,
@@ -215,9 +218,8 @@ export function describeSportConflict(
   if (sport.format === 'double' && sport.player2Mobile) {
     mobiles.push(sport.player2Mobile)
   }
-  if (mobiles.length === 0 && contactMobile) {
-    mobiles.push(contactMobile)
-  }
+  // Always include registration contact mobile — not only when player fields are empty
+  if (contactMobile) mobiles.push(contactMobile)
 
   const found = findExistingSportEntryByPlayers(mobiles, sport.sportId)
   if (!found) return null

@@ -276,6 +276,22 @@ function validateSports(): boolean {
     )
     return false
   }
+
+  const contact = normalizeMobile(state.mobile)
+  if (contact.length >= 10) {
+    for (const id of selectedSportsList()) {
+      const conflict = describePlayerMobileConflict(
+        contact,
+        id,
+        sportLabel(id),
+      )
+      if (conflict) {
+        sportError = conflict
+        return false
+      }
+    }
+  }
+
   return true
 }
 
@@ -328,6 +344,23 @@ function validateFormats(): boolean {
       )
       if (conflict) {
         errors.player1 = { ...errors.player1, mobile: conflict }
+      }
+    }
+
+    // Registration contact mobile cannot re-enter this sport (even if Player 1 differs)
+    const contactMobile = normalizeMobile(state.mobile)
+    if (
+      contactMobile.length >= 10 &&
+      contactMobile !== p1MobileCheck &&
+      !errors.player1?.mobile
+    ) {
+      const contactConflict = describePlayerMobileConflict(
+        contactMobile,
+        id,
+        sportLabel(id),
+      )
+      if (contactConflict) {
+        errors.player1 = { ...errors.player1, mobile: contactConflict }
       }
     }
 
