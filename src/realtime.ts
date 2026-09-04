@@ -30,12 +30,8 @@ function notify(): void {
   for (const listener of [...listeners]) listener()
 }
 
-async function handleUpdate(type?: string): Promise<void> {
-  if (type === 'capacities-updated') {
-    await refreshCapacities()
-  } else {
-    await Promise.all([refreshRegistrations(), refreshCapacities()])
-  }
+async function handleUpdate(_type?: string): Promise<void> {
+  await Promise.all([refreshRegistrations(), refreshCapacities()])
   notify()
 }
 

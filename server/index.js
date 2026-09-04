@@ -138,6 +138,75 @@ function broadcastCapacitiesUpdated() {
   broadcast('capacities-updated')
 }
 
+/**
+ * Assign confirmed/waiting by registration time (oldest first).
+ * First `capacity` seats per sport+gender are confirmed; the rest wait.
+ * Runs after capacity changes and registration create/delete.
+ */
+async function recalculateSeatStatuses() {
+  const capacities = await readCapacities()
+  const result = await pool.query(
+    `SELECT id, gender, sports, created_at
+     FROM registrations
+     ORDER BY created_at ASC, id ASC`,
+  )
+
+  /** @type {Map<string, { id: string, index: number }[]>} */
+  const buckets = new Map()
+  /** @type {Map<string, any[]>} */
+  const sportsById = new Map()
+
+  for (const row of result.rows) {
+    const sports = Array.isArray(row.sports)
+      ? row.sports.map((s) => ({ ...s }))
+      : []
+    sportsById.set(row.id, sports)
+
+    sports.forEach((sport, index) => {
+      const sportId = sport?.sportId
+      if (!sportId || !SPORT_IDS.includes(sportId)) return
+      const key = `${sportId}:${row.gender}`
+      if (!buckets.has(key)) buckets.set(key, [])
+      buckets.get(key).push({ id: row.id, index })
+    })
+  }
+
+  for (const [key, entries] of buckets.entries()) {
+    const [sportId, gender] = key.split(':')
+    const cap = Number(capacities[sportId]?.[gender] ?? 0)
+    entries.forEach((entry, position) => {
+      const sports = sportsById.get(entry.id)
+      if (!sports?.[entry.index]) return
+      sports[entry.index].status = position < cap ? 'confirmed' : 'waiting'
+    })
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    for (const row of result.rows) {
+      const nextSports = sportsById.get(row.id)
+      const prevSig = (row.sports || [])
+        .map((s) => `${s.sportId}:${s.status || ''}`)
+        .join('|')
+      const nextSig = (nextSports || [])
+        .map((s) => `${s.sportId}:${s.status || ''}`)
+        .join('|')
+      if (prevSig === nextSig) continue
+      await client.query(
+        `UPDATE registrations SET sports = $1::jsonb WHERE id = $2`,
+        [JSON.stringify(nextSports), row.id],
+      )
+    }
+    await client.query('COMMIT')
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
 wss.on('connection', (socket) => {
   socket.send(JSON.stringify({ type: 'connected' }))
 })
@@ -165,7 +234,9 @@ app.put('/api/capacities', async (req, res) => {
          SET value = EXCLUDED.value, updated_at = NOW()`,
       [JSON.stringify(capacities)],
     )
+    await recalculateSeatStatuses()
     broadcastCapacitiesUpdated()
+    broadcastRegistrationsUpdated()
     res.json(capacities)
   } catch (error) {
     console.error(error)
@@ -207,13 +278,20 @@ app.post('/api/registrations', async (req, res) => {
       `INSERT INTO registrations
         (id, full_name, mobile, location, gender, sports, created_at)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz)
-       RETURNING id, full_name, mobile, location, gender, sports, created_at`,
+       RETURNING id`,
       [id, fullName, mobile, location, gender, JSON.stringify(sports), createdAt],
     )
 
-    const saved = rowToRegistration(result.rows[0])
+    await recalculateSeatStatuses()
+
+    const updated = await pool.query(
+      `SELECT id, full_name, mobile, location, gender, sports, created_at
+       FROM registrations WHERE id = $1`,
+      [result.rows[0].id],
+    )
+
     broadcastRegistrationsUpdated()
-    res.status(201).json(saved)
+    res.status(201).json(rowToRegistration(updated.rows[0]))
   } catch (error) {
     console.error(error)
     res.status(500).json({ error: 'Failed to save registration' })
@@ -230,6 +308,7 @@ app.delete('/api/registrations/:id', async (req, res) => {
       res.status(404).json({ error: 'Registration not found' })
       return
     }
+    await recalculateSeatStatuses()
     broadcastRegistrationsUpdated()
     res.json({ ok: true, id: req.params.id })
   } catch (error) {
@@ -253,6 +332,7 @@ async function start() {
   }
 
   await ensureSchema()
+  await recalculateSeatStatuses()
   server.listen(port, () => {
     console.log(`CHANSMA API + WebSocket on http://localhost:${port}`)
   })

@@ -301,7 +301,7 @@ export function renderAdmin(root: HTMLElement): void {
             <div class="capacity-intro">
               <p class="capacity-kicker">Live settings</p>
               <h2 class="capacity-title">Slot counts</h2>
-              <p class="capacity-sub">Men and women capacity per sport. Apply to update registration badges instantly.</p>
+              <p class="capacity-sub">Men and women capacity per sport. Apply rebalances confirmed vs waiting by registration time and updates live badges.</p>
             </div>
             <div class="capacity-toolbar">
               <div class="capacity-fill">
@@ -537,7 +537,7 @@ export function renderAdmin(root: HTMLElement): void {
           .then(() => {
             syncCapacityDraftFromLive()
             capacityMessage =
-              'Applied. Slot counts are live for everyone with the form open.'
+              'Applied. Seats rebalanced by registration time — earlier registrations keep confirmed slots; later ones wait if full. Live badges updated.'
             capacityError = ''
           })
           .catch((error) => {
