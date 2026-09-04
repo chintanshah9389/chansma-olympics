@@ -1480,8 +1480,7 @@ body::before {
   }
 
   .section-label .i18n-line,
-  .section-hint .i18n-line,
-  .field label .i18n-line {
+  .section-hint .i18n-line {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -1489,9 +1488,17 @@ body::before {
   }
 
   .section-label .i18n-sep,
-  .section-hint .i18n-sep,
-  .field label .i18n-sep {
+  .section-hint .i18n-sep {
     display: none;
+  }
+
+  /* Keep "Full Name / પૂરું નામ" on one line with the slash visible */
+  .field label .i18n-line {
+    display: inline;
+  }
+
+  .field label .i18n-sep {
+    display: inline;
   }
 
   .section-hint {
