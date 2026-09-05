@@ -174,32 +174,43 @@ export function normalizeMobile(mobile: string): string {
   return mobile.replace(/\D/g, '')
 }
 
-/** Count confirmed seats only (waiting list does not fill capacity) */
+/** Singles/team = 1 seat; doubles = 2 seats against that gender quota. */
+export function seatWeight(format?: string | null): number {
+  return format === 'double' ? 2 : 1
+}
+
+/** Count confirmed seat units only (waiting does not fill capacity). Doubles = 2. */
 export function countSportRegistrations(
   sportId: SportId,
   gender: Gender,
 ): number {
   return getRegistrations().reduce((count, reg) => {
     if (reg.gender !== gender) return count
-    const hasConfirmed = reg.sports.some(
-      (s) =>
+    for (const s of reg.sports) {
+      if (
         s.sportId === sportId &&
-        (s.status ?? 'confirmed') === 'confirmed',
-    )
-    return hasConfirmed ? count + 1 : count
+        (s.status ?? 'confirmed') === 'confirmed'
+      ) {
+        count += seatWeight(s.format)
+      }
+    }
+    return count
   }, 0)
 }
 
+/** Waiting list size in seat units (doubles count as 2). */
 export function countWaitingRegistrations(
   sportId: SportId,
   gender: Gender,
 ): number {
   return getRegistrations().reduce((count, reg) => {
     if (reg.gender !== gender) return count
-    const hasWaiting = reg.sports.some(
-      (s) => s.sportId === sportId && s.status === 'waiting',
-    )
-    return hasWaiting ? count + 1 : count
+    for (const s of reg.sports) {
+      if (s.sportId === sportId && s.status === 'waiting') {
+        count += seatWeight(s.format)
+      }
+    }
+    return count
   }, 0)
 }
 

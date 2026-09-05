@@ -8,6 +8,7 @@ import {
   refreshRegistrations,
   resetRegistrations,
   saveCapacities,
+  seatWeight,
   updateRegistration,
 } from './storage'
 import {
@@ -111,7 +112,10 @@ function statusLabel(row: FlatRow): string {
   if (!status) return '—'
   const rank = row.seatNumber
   const word = status === 'confirmed' ? 'Confirmed' : 'Waiting'
-  return rank != null ? `${word} ${rank}` : word
+  if (rank == null) return word
+  const weight = seatWeight(row.sport?.format)
+  if (weight > 1) return `${word} ${rank}–${rank + weight - 1}`
+  return `${word} ${rank}`
 }
 
 function createdAtMs(iso: string): number {
@@ -125,7 +129,7 @@ function sportOrderIndex(id: SportId | undefined): number {
   return idx === -1 ? ALL_SPORT_IDS.length : idx
 }
 
-/** Flatten registrations, then number Confirmed 1…N / Waiting 1…N per sport+gender (oldest first). */
+/** Flatten registrations, then number seat units Confirmed/Waiting per sport+gender (oldest first). Doubles occupy 2 units. */
 function flattenRows(regs: Registration[]): FlatRow[] {
   const rows: FlatRow[] = []
   for (const registration of regs) {
@@ -155,9 +159,11 @@ function flattenRows(regs: Registration[]): FlatRow[] {
       if (byTime !== 0) return byTime
       return a.registration.id.localeCompare(b.registration.id)
     })
-    list.forEach((row, i) => {
-      row.seatNumber = i + 1
-    })
+    let cursor = 1
+    for (const row of list) {
+      row.seatNumber = cursor
+      cursor += seatWeight(row.sport?.format)
+    }
   }
 
   return rows
@@ -486,12 +492,20 @@ export function renderAdmin(root: HTMLElement): void {
   const apiError = getStorageError()
   const regs = getRegistrations()
   const allRows = flattenRows(regs)
-  const confirmedCount = allRows.filter(
-    (r) => r.sport?.status === 'confirmed',
-  ).length
-  const waitingCount = allRows.filter(
-    (r) => r.sport?.status === 'waiting',
-  ).length
+  const confirmedCount = allRows.reduce(
+    (n, r) =>
+      r.sport?.status === 'confirmed' ? n + seatWeight(r.sport.format) : n,
+    0,
+  )
+  const waitingCount = allRows.reduce(
+    (n, r) =>
+      r.sport?.status === 'waiting' ? n + seatWeight(r.sport.format) : n,
+    0,
+  )
+  const seatUnitTotal = allRows.reduce(
+    (n, r) => (r.sport ? n + seatWeight(r.sport.format) : n),
+    0,
+  )
   const rows = sortSeatRows(
     allRows.filter(
       (row) =>
@@ -503,7 +517,11 @@ export function renderAdmin(root: HTMLElement): void {
   const sportCounts = Object.fromEntries(
     ALL_SPORT_IDS.map((id) => [
       id,
-      allRows.filter((row) => row.sport?.sportId === id).length,
+      allRows.reduce(
+        (n, row) =>
+          row.sport?.sportId === id ? n + seatWeight(row.sport.format) : n,
+        0,
+      ),
     ]),
   ) as Record<SportId, number>
 
@@ -537,7 +555,7 @@ export function renderAdmin(root: HTMLElement): void {
             <div class="capacity-intro">
               <p class="capacity-kicker">Live settings</p>
               <h2 class="capacity-title">Slot counts</h2>
-              <p class="capacity-sub">Men and women capacity per sport. Apply rebalances confirmed vs waiting by registration time and updates live badges.</p>
+              <p class="capacity-sub">Men and women capacity per sport in seat units. Singles use 1 seat; doubles use 2. Apply rebalances confirmed vs waiting by registration time and updates live badges.</p>
             </div>
             <div class="capacity-toolbar">
               <div class="capacity-fill">
@@ -600,7 +618,7 @@ export function renderAdmin(root: HTMLElement): void {
         <div class="admin-toolbar">
           <div class="admin-stats">
             <span><strong>${regs.length}</strong> registrations</span>
-            <span><strong>${allRows.length}</strong> sport seats</span>
+            <span><strong>${seatUnitTotal}</strong> sport seats</span>
             <span class="stat-confirmed"><strong>${confirmedCount}</strong> confirmed</span>
             <span class="stat-waiting"><strong>${waitingCount}</strong> waiting</span>
             <span>Showing <strong>${rows.length}</strong></span>
@@ -668,7 +686,7 @@ export function renderAdmin(root: HTMLElement): void {
               ${filterChip(`Waiting (${waitingCount})`, statusFilter === 'waiting', 'data-filter-status="waiting"')}
             </div>
           </div>
-          <p class="filter-hint">Rows are ordered Confirmed 1, 2, 3… then Waiting 1, 2, 3… per sport and gender (oldest registration first). Seat counts recalculate after edit, delete, or reset.</p>
+          <p class="filter-hint">Rows are ordered Confirmed then Waiting per sport and gender (oldest first). Doubles occupy 2 seat numbers (e.g. Confirmed 1–2). Seat counts recalculate after edit, delete, or reset.</p>
         </div>
 
         ${

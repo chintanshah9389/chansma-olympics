@@ -2,6 +2,7 @@ import './style.css'
 import {
   availableSlots,
   countSportRegistrations,
+  seatWeight,
   countWaitingRegistrations,
   createId,
   describePlayerMobileConflict,
@@ -184,8 +185,9 @@ function buildSelectedSports(): SelectedSport[] {
         ? normalizeMobile(players.player2.mobile)
         : undefined
 
+    const weight = seatWeight(format)
     const status =
-      state.gender && slotsFor(sportId) > 0 ? 'confirmed' : 'waiting'
+      state.gender && slotsFor(sportId) >= weight ? 'confirmed' : 'waiting'
 
     return {
       sportId,

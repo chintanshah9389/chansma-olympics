@@ -138,10 +138,15 @@ function broadcastCapacitiesUpdated() {
   broadcast('capacities-updated')
 }
 
+/** Singles/team = 1 seat; doubles = 2 seats against that gender quota. */
+function seatWeight(format) {
+  return format === 'double' ? 2 : 1
+}
+
 /**
  * Assign confirmed/waiting by registration time (oldest first).
- * First `capacity` seats per sport+gender are confirmed; the rest wait.
- * Runs after capacity changes and registration create/delete.
+ * Capacity is seat units per sport+gender: doubles consume 2, singles 1.
+ * Runs after capacity changes and registration create/delete/update.
  */
 async function recalculateSeatStatuses() {
   const capacities = await readCapacities()
@@ -174,11 +179,18 @@ async function recalculateSeatStatuses() {
   for (const [key, entries] of buckets.entries()) {
     const [sportId, gender] = key.split(':')
     const cap = Number(capacities[sportId]?.[gender] ?? 0)
-    entries.forEach((entry, position) => {
+    let used = 0
+    for (const entry of entries) {
       const sports = sportsById.get(entry.id)
-      if (!sports?.[entry.index]) return
-      sports[entry.index].status = position < cap ? 'confirmed' : 'waiting'
-    })
+      if (!sports?.[entry.index]) continue
+      const weight = seatWeight(sports[entry.index].format)
+      if (used + weight <= cap) {
+        sports[entry.index].status = 'confirmed'
+        used += weight
+      } else {
+        sports[entry.index].status = 'waiting'
+      }
+    }
   }
 
   const client = await pool.connect()
