@@ -1370,6 +1370,12 @@ input.is-invalid,
   text-align: right;
 }
 
+.admin-table .col-check {
+  width: 2.25rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
 .admin-table .col-seat {
   min-width: 7.5rem;
 }
@@ -1380,6 +1386,138 @@ input.is-invalid,
   min-width: 6.5rem;
 }
 
+.admin-table .col-actions {
+  min-width: 11rem;
+  white-space: nowrap;
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: #f7f2e8;
+  box-shadow: -4px 0 8px -6px rgba(11, 31, 58, 0.2);
+}
+
+.admin-table thead th.col-actions {
+  z-index: 3;
+  background: #efe8da;
+}
+
+.admin-table tbody tr:nth-child(even) td.col-actions {
+  background: #f1ebe0;
+}
+
+.admin-table tbody tr:hover td.col-actions {
+  background: #f3e8d0;
+}
+
+.admin-table tbody tr.row-waiting td.col-actions {
+  background: #f6edd8;
+}
+
+.admin-check {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--navy);
+  cursor: pointer;
+}
+
+.btn-table {
+  padding: 0.28rem 0.55rem;
+  font-size: 0.72rem;
+  min-height: 0;
+  margin: 0.1rem 0.1rem 0.1rem 0;
+}
+
+.btn-danger {
+  color: #8a1f1f;
+  border-color: rgba(138, 31, 31, 0.35);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(138, 31, 31, 0.08);
+  border-color: rgba(138, 31, 31, 0.55);
+}
+
+.stat-selected {
+  color: var(--navy);
+}
+
+.admin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(11, 31, 58, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.admin-modal {
+  width: min(640px, 100%);
+  max-height: min(90vh, 900px);
+  overflow: auto;
+  background: #f7f2e8;
+  border: 1px solid rgba(11, 31, 58, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(11, 31, 58, 0.28);
+  padding: 1rem 1.1rem 1.15rem;
+}
+
+.admin-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.admin-modal-head h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--navy);
+}
+
+.admin-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.admin-edit-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+.admin-edit-grid input,
+.admin-edit-grid select {
+  font: inherit;
+  font-weight: 500;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid rgba(11, 31, 58, 0.18);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.admin-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  .admin-edit-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-table th.col-check,
+.admin-table td.col-check,
 .admin-table th.col-num,
 .admin-table td.col-num,
 .admin-table th.col-seat,
@@ -1390,28 +1528,42 @@ input.is-invalid,
   background: #f7f2e8;
 }
 
+.admin-table th.col-check,
+.admin-table td.col-check {
+  left: 0;
+}
+
+.admin-table th.col-num,
+.admin-table td.col-num {
+  left: 2.25rem;
+}
+
 .admin-table th.col-seat,
 .admin-table td.col-seat {
-  left: 2.75rem;
+  left: 4.75rem;
   box-shadow: 4px 0 8px -6px rgba(11, 31, 58, 0.2);
 }
 
+.admin-table thead th.col-check,
 .admin-table thead th.col-num,
 .admin-table thead th.col-seat {
   z-index: 3;
   background: #efe8da;
 }
 
+.admin-table tbody tr:nth-child(even) td.col-check,
 .admin-table tbody tr:nth-child(even) td.col-num,
 .admin-table tbody tr:nth-child(even) td.col-seat {
   background: #f1ebe0;
 }
 
+.admin-table tbody tr:hover td.col-check,
 .admin-table tbody tr:hover td.col-num,
 .admin-table tbody tr:hover td.col-seat {
   background: #f3e8d0;
 }
 
+.admin-table tbody tr.row-waiting td.col-check,
 .admin-table tbody tr.row-waiting td.col-num,
 .admin-table tbody tr.row-waiting td.col-seat {
   background: #f6edd8;
@@ -1972,20 +2124,28 @@ input.is-invalid,
   }
 
   /* Sticky left columns eat too much width on phones */
+  .admin-table th.col-check,
+  .admin-table td.col-check,
   .admin-table th.col-num,
   .admin-table td.col-num,
   .admin-table th.col-seat,
-  .admin-table td.col-seat {
+  .admin-table td.col-seat,
+  .admin-table th.col-actions,
+  .admin-table td.col-actions {
     position: static;
     left: auto;
+    right: auto;
     box-shadow: none;
   }
 
+  .admin-table thead th.col-check,
   .admin-table thead th.col-num,
-  .admin-table thead th.col-seat {
+  .admin-table thead th.col-seat,
+  .admin-table thead th.col-actions {
     position: sticky;
     top: 0;
     left: auto;
+    right: auto;
   }
 
   .admin-table {

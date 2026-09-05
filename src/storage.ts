@@ -114,6 +114,62 @@ export async function deleteRegistration(id: string): Promise<void> {
   await refreshRegistrations()
 }
 
+export async function updateRegistration(
+  registration: Registration,
+): Promise<Registration> {
+  const response = await fetch(
+    apiUrl(`/api/registrations/${encodeURIComponent(registration.id)}`),
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(registration),
+    },
+  )
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new Error(body?.error || `Update failed (${response.status})`)
+  }
+  const data = (await response.json()) as Registration
+  await refreshRegistrations()
+  return data
+}
+
+export async function bulkDeleteRegistrations(ids: string[]): Promise<number> {
+  const response = await fetch(apiUrl('/api/registrations/bulk-delete'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new Error(body?.error || `Bulk delete failed (${response.status})`)
+  }
+  const data = (await response.json()) as { deleted?: number }
+  await refreshRegistrations()
+  return data.deleted ?? ids.length
+}
+
+export async function resetRegistrations(): Promise<number> {
+  const response = await fetch(apiUrl('/api/registrations/reset'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm: 'RESET' }),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new Error(body?.error || `Reset failed (${response.status})`)
+  }
+  const data = (await response.json()) as { deleted?: number }
+  await refreshRegistrations()
+  return data.deleted ?? 0
+}
+
 export function normalizeMobile(mobile: string): string {
   return mobile.replace(/\D/g, '')
 }

@@ -56,6 +56,18 @@ export const iconDownload = (): string =>
     'icon icon-sm',
   )
 
+export const iconTrash = (): string =>
+  svg(
+    `<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/>`,
+    'icon icon-sm',
+  )
+
+export const iconEdit = (): string =>
+  svg(
+    `<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>`,
+    'icon icon-sm',
+  )
+
 export const iconCopy = (): string =>
   svg(
     `<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>`,

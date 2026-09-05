@@ -226,8 +226,11 @@ function sportEntryMobiles(entry) {
 /**
  * Block if any Player 1 / Player 2 mobile is already in that sport.
  * Step‑1 contact mobile is ignored — it is only who is filling the form.
+ * @param {string} _regMobile
+ * @param {any[]} sports
+ * @param {string | null} [excludeId]
  */
-async function findRegistrationMobileConflict(_regMobile, sports) {
+async function findRegistrationMobileConflict(_regMobile, sports, excludeId = null) {
   const result = await pool.query(
     `SELECT id, full_name, mobile, sports FROM registrations`,
   )
@@ -240,6 +243,7 @@ async function findRegistrationMobileConflict(_regMobile, sports) {
     if (targets.length === 0) continue
 
     for (const row of result.rows) {
+      if (excludeId && row.id === excludeId) continue
       const existingSports = Array.isArray(row.sports) ? row.sports : []
       const entry = existingSports.find((s) => s?.sportId === sportId)
       if (!entry) continue
@@ -369,6 +373,99 @@ app.delete('/api/registrations/:id', async (req, res) => {
   } catch (error) {
     console.error(error)
     res.status(500).json({ error: 'Failed to delete registration' })
+  }
+})
+
+app.put('/api/registrations/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id || '')
+    const body = req.body ?? {}
+    const fullName = String(body.fullName || '').trim()
+    const mobile = String(body.mobile || '').replace(/\D/g, '')
+    const location = String(body.location || '').trim()
+    const gender = body.gender === 'female' ? 'female' : 'male'
+    const sports = Array.isArray(body.sports) ? body.sports : []
+
+    if (!id || !fullName || sports.length === 0) {
+      res.status(400).json({ error: 'Missing required registration fields' })
+      return
+    }
+
+    const existing = await pool.query(
+      `SELECT id FROM registrations WHERE id = $1`,
+      [id],
+    )
+    if (existing.rowCount === 0) {
+      res.status(404).json({ error: 'Registration not found' })
+      return
+    }
+
+    const conflict = await findRegistrationMobileConflict(mobile, sports, id)
+    if (conflict) {
+      res.status(409).json({ error: conflict })
+      return
+    }
+
+    await pool.query(
+      `UPDATE registrations
+       SET full_name = $1, mobile = $2, location = $3, gender = $4, sports = $5::jsonb
+       WHERE id = $6`,
+      [fullName, mobile, location, gender, JSON.stringify(sports), id],
+    )
+
+    await recalculateSeatStatuses()
+
+    const updated = await pool.query(
+      `SELECT id, full_name, mobile, location, gender, sports, created_at
+       FROM registrations WHERE id = $1`,
+      [id],
+    )
+
+    broadcastRegistrationsUpdated()
+    res.json(rowToRegistration(updated.rows[0]))
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: 'Failed to update registration' })
+  }
+})
+
+app.post('/api/registrations/bulk-delete', async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids)
+      ? [...new Set(req.body.ids.map((id) => String(id || '').trim()).filter(Boolean))]
+      : []
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'No registration ids provided' })
+      return
+    }
+
+    const result = await pool.query(
+      `DELETE FROM registrations WHERE id = ANY($1::text[]) RETURNING id`,
+      [ids],
+    )
+    await recalculateSeatStatuses()
+    broadcastRegistrationsUpdated()
+    res.json({ ok: true, deleted: result.rowCount, ids: result.rows.map((r) => r.id) })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: 'Failed to bulk delete registrations' })
+  }
+})
+
+app.post('/api/registrations/reset', async (req, res) => {
+  try {
+    const confirm = String(req.body?.confirm || '')
+    if (confirm !== 'RESET') {
+      res.status(400).json({ error: 'Send { "confirm": "RESET" } to wipe all registrations' })
+      return
+    }
+    const result = await pool.query(`DELETE FROM registrations RETURNING id`)
+    await recalculateSeatStatuses()
+    broadcastRegistrationsUpdated()
+    res.json({ ok: true, deleted: result.rowCount })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: 'Failed to reset registrations' })
   }
 })
 

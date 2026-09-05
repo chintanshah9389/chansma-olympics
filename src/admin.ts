@@ -1,9 +1,14 @@
 import {
+  bulkDeleteRegistrations,
+  deleteRegistration,
   getRegistrations,
   getStorageError,
+  normalizeMobile,
   refreshCapacities,
   refreshRegistrations,
+  resetRegistrations,
   saveCapacities,
+  updateRegistration,
 } from './storage'
 import {
   ALL_SPORT_IDS,
@@ -15,11 +20,20 @@ import {
 import {
   iconArrowLeft,
   iconDownload,
+  iconEdit,
   iconRefresh,
+  iconTrash,
   sportIcon,
   withIcon,
 } from './icons'
-import type { Gender, Registration, SelectedSport, SportId, SportSeatStatus } from './types'
+import type {
+  Gender,
+  PlayFormat,
+  Registration,
+  SelectedSport,
+  SportId,
+  SportSeatStatus,
+} from './types'
 import { onRealtimeUpdate } from './realtime'
 
 type FlatRow = {
@@ -37,6 +51,23 @@ let capacityDraft: SportCapacities | null = null
 let capacityMessage = ''
 let capacityError = ''
 let capacitySaving = false
+let tableMessage = ''
+let tableError = ''
+let tableBusy = false
+let selectedKeys = new Set<string>()
+let editTarget: { regId: string; sportId: SportId | null } | null = null
+
+function rowKey(regId: string, sportId: string | null | undefined): string {
+  return `${regId}||${sportId ?? ''}`
+}
+
+function parseRowKey(key: string): { regId: string; sportId: SportId | null } {
+  const [regId, sportId = ''] = key.split('||')
+  return {
+    regId,
+    sportId: (sportId || null) as SportId | null,
+  }
+}
 
 function ensureCapacityDraft(): SportCapacities {
   if (!capacityDraft) {
@@ -201,6 +232,8 @@ function matchesFilters(
 function rowHtml(row: FlatRow, index: number): string {
   const r = row.registration
   const s = row.sport
+  const key = rowKey(r.id, s?.sportId)
+  const checked = selectedKeys.has(key)
   const status = s?.status ?? ''
   const statusClass =
     status === 'waiting'
@@ -210,7 +243,10 @@ function rowHtml(row: FlatRow, index: number): string {
         : ''
 
   return `
-    <tr class="${statusClass ? `row-${status}` : ''}">
+    <tr class="${statusClass ? `row-${status}` : ''}" data-row-key="${escapeHtml(key)}">
+      <td class="col-check">
+        <input type="checkbox" class="admin-check" data-select-row="${escapeHtml(key)}" ${checked ? 'checked' : ''} aria-label="Select row" />
+      </td>
       <td class="col-num">${index + 1}</td>
       <td class="col-seat"><span class="status-pill ${statusClass}">${escapeHtml(statusLabel(row))}</span></td>
       <td class="col-sport">${s ? escapeHtml(sportLabel(s.sportId)) : '—'}</td>
@@ -225,8 +261,118 @@ function rowHtml(row: FlatRow, index: number): string {
       <td>${escapeHtml(s?.player2Mobile || '—')}</td>
       <td class="col-ref"><code>${escapeHtml(r.id)}</code></td>
       <td class="col-when">${escapeHtml(formatWhen(r.createdAt))}</td>
+      <td class="col-actions">
+        <button type="button" class="btn btn-ghost btn-table" data-edit-row="${escapeHtml(key)}" ${tableBusy ? 'disabled' : ''}>${withIcon(iconEdit(), 'Edit')}</button>
+        <button type="button" class="btn btn-ghost btn-table btn-danger" data-delete-row="${escapeHtml(key)}" ${tableBusy ? 'disabled' : ''}>${withIcon(iconTrash(), 'Delete')}</button>
+      </td>
     </tr>
   `
+}
+
+function editModalHtml(): string {
+  if (!editTarget) return ''
+  const reg = getRegistrations().find((r) => r.id === editTarget!.regId)
+  if (!reg) return ''
+  const sport =
+    editTarget.sportId != null
+      ? reg.sports.find((s) => s.sportId === editTarget!.sportId) ?? null
+      : null
+
+  return `
+    <div class="admin-modal-backdrop" data-close-edit-backdrop>
+      <div class="admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-edit-title">
+        <div class="admin-modal-head">
+          <h3 id="admin-edit-title">Edit registration</h3>
+          <button type="button" class="btn btn-ghost" data-admin="close-edit">Close</button>
+        </div>
+        <form class="admin-edit-form" data-edit-form>
+          <input type="hidden" name="regId" value="${escapeHtml(reg.id)}" />
+          <input type="hidden" name="sportId" value="${escapeHtml(sport?.sportId ?? '')}" />
+          <div class="admin-edit-grid">
+            <label>Full name
+              <input name="fullName" type="text" required value="${escapeHtml(reg.fullName)}" />
+            </label>
+            <label>Contact mobile
+              <input name="mobile" type="tel" value="${escapeHtml(reg.mobile)}" />
+            </label>
+            <label>Location
+              <input name="location" type="text" value="${escapeHtml(reg.location)}" />
+            </label>
+            <label>Gender
+              <select name="gender">
+                <option value="male" ${reg.gender === 'male' ? 'selected' : ''}>Male</option>
+                <option value="female" ${reg.gender === 'female' ? 'selected' : ''}>Female</option>
+              </select>
+            </label>
+            ${
+              sport
+                ? `
+            <label>Sport
+              <input type="text" value="${escapeHtml(sportLabel(sport.sportId))}" disabled />
+            </label>
+            <label>Format
+              <select name="format">
+                <option value="single" ${sport.format !== 'double' ? 'selected' : ''}>Singles / Team</option>
+                <option value="double" ${sport.format === 'double' ? 'selected' : ''}>Doubles</option>
+              </select>
+            </label>
+            <label>Player 1 name
+              <input name="player1Name" type="text" value="${escapeHtml(sport.player1Name ?? '')}" />
+            </label>
+            <label>Player 1 mobile
+              <input name="player1Mobile" type="tel" value="${escapeHtml(sport.player1Mobile ?? '')}" />
+            </label>
+            <label>Player 2 name
+              <input name="player2Name" type="text" value="${escapeHtml(sport.player2Name ?? '')}" />
+            </label>
+            <label>Player 2 mobile
+              <input name="player2Mobile" type="tel" value="${escapeHtml(sport.player2Mobile ?? '')}" />
+            </label>
+            `
+                : ''
+            }
+          </div>
+          <div class="admin-modal-actions">
+            <button type="button" class="btn btn-ghost" data-admin="close-edit">Cancel</button>
+            <button type="submit" class="btn btn-gold" ${tableBusy ? 'disabled' : ''}>Save changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `
+}
+
+async function removeSportOrRegistration(
+  regId: string,
+  sportId: SportId | null,
+): Promise<void> {
+  const reg = getRegistrations().find((r) => r.id === regId)
+  if (!reg) return
+
+  if (!sportId || reg.sports.length <= 1) {
+    await deleteRegistration(regId)
+    return
+  }
+
+  const nextSports = reg.sports.filter((s) => s.sportId !== sportId)
+  if (!nextSports.length) {
+    await deleteRegistration(regId)
+    return
+  }
+
+  await updateRegistration({ ...reg, sports: nextSports })
+}
+
+async function afterTableChange(
+  root: HTMLElement,
+  message: string,
+): Promise<void> {
+  await Promise.all([refreshRegistrations(), refreshCapacities()])
+  syncCapacityDraftFromLive()
+  tableMessage = message
+  tableError = ''
+  tableBusy = false
+  renderAdmin(root)
 }
 
 function csvEscape(value: string): string {
@@ -458,6 +604,7 @@ export function renderAdmin(root: HTMLElement): void {
             <span class="stat-confirmed"><strong>${confirmedCount}</strong> confirmed</span>
             <span class="stat-waiting"><strong>${waitingCount}</strong> waiting</span>
             <span>Showing <strong>${rows.length}</strong></span>
+            ${selectedKeys.size ? `<span class="stat-selected"><strong>${selectedKeys.size}</strong> selected</span>` : ''}
           </div>
           <div class="admin-actions">
             <input
@@ -468,8 +615,10 @@ export function renderAdmin(root: HTMLElement): void {
               value="${escapeHtml(searchQuery)}"
               autocomplete="off"
             />
-            <button type="button" class="btn btn-ghost" data-admin="refresh">${withIcon(iconRefresh(), 'Refresh')}</button>
+            <button type="button" class="btn btn-ghost" data-admin="refresh" ${tableBusy ? 'disabled' : ''}>${withIcon(iconRefresh(), 'Refresh')}</button>
             <button type="button" class="btn btn-gold" data-admin="csv">${withIcon(iconDownload(), 'Export CSV')}</button>
+            <button type="button" class="btn btn-ghost btn-danger" data-admin="bulk-delete" ${tableBusy || !selectedKeys.size ? 'disabled' : ''}>${withIcon(iconTrash(), `Delete selected (${selectedKeys.size})`)}</button>
+            <button type="button" class="btn btn-ghost btn-danger" data-admin="reset-db" ${tableBusy ? 'disabled' : ''}>Reset DB</button>
             ${
               filtersActive
                 ? `<button type="button" class="btn btn-ghost" data-admin="clear">Clear filters</button>`
@@ -477,6 +626,17 @@ export function renderAdmin(root: HTMLElement): void {
             }
           </div>
         </div>
+
+        ${
+          tableError
+            ? `<div class="alert">${escapeHtml(tableError)}</div>`
+            : ''
+        }
+        ${
+          tableMessage
+            ? `<div class="capacity-ok">${escapeHtml(tableMessage)}</div>`
+            : ''
+        }
 
         <div class="admin-filters">
           <div class="filter-row">
@@ -508,7 +668,7 @@ export function renderAdmin(root: HTMLElement): void {
               ${filterChip(`Waiting (${waitingCount})`, statusFilter === 'waiting', 'data-filter-status="waiting"')}
             </div>
           </div>
-          <p class="filter-hint">Rows are ordered Confirmed 1, 2, 3… then Waiting 1, 2, 3… per sport and gender (oldest registration first).</p>
+          <p class="filter-hint">Rows are ordered Confirmed 1, 2, 3… then Waiting 1, 2, 3… per sport and gender (oldest registration first). Seat counts recalculate after edit, delete, or reset.</p>
         </div>
 
         ${
@@ -521,6 +681,9 @@ export function renderAdmin(root: HTMLElement): void {
           <table class="admin-table">
             <thead>
               <tr>
+                <th class="col-check">
+                  <input type="checkbox" class="admin-check" data-select-all ${rows.length && rows.every((r) => selectedKeys.has(rowKey(r.registration.id, r.sport?.sportId))) ? 'checked' : ''} aria-label="Select all visible" />
+                </th>
                 <th class="col-num">#</th>
                 <th class="col-seat">Seat</th>
                 <th class="col-sport">Sport</th>
@@ -535,19 +698,21 @@ export function renderAdmin(root: HTMLElement): void {
                 <th>P2 mobile</th>
                 <th>Reference</th>
                 <th>Registered</th>
+                <th class="col-actions">Actions</th>
               </tr>
             </thead>
             <tbody>
               ${
                 rows.length
                   ? rows.map((row, i) => rowHtml(row, i)).join('')
-                  : `<tr><td colspan="14" class="admin-empty">No rows match these filters.</td></tr>`
+                  : `<tr><td colspan="16" class="admin-empty">No rows match these filters.</td></tr>`
               }
             </tbody>
           </table>
         </div>
       </main>
     </div>
+    ${editModalHtml()}
   `
 
   const search = root.querySelector<HTMLInputElement>('input[name="adminSearch"]')
@@ -590,7 +755,8 @@ export function renderAdmin(root: HTMLElement): void {
   })
 
   root.querySelectorAll<HTMLButtonElement>('[data-admin]').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation()
       const action = btn.dataset.admin
       if (action === 'refresh') {
         void Promise.all([refreshRegistrations(), refreshCapacities()]).then(
@@ -598,6 +764,8 @@ export function renderAdmin(root: HTMLElement): void {
             syncCapacityDraftFromLive()
             capacityMessage = ''
             capacityError = ''
+            tableMessage = ''
+            tableError = ''
             renderAdmin(root)
           },
         )
@@ -609,6 +777,91 @@ export function renderAdmin(root: HTMLElement): void {
         genderFilter = 'all'
         statusFilter = 'all'
         renderAdmin(root)
+      } else if (action === 'close-edit') {
+        editTarget = null
+        renderAdmin(root)
+      } else if (action === 'bulk-delete') {
+        if (!selectedKeys.size || tableBusy) return
+        const keys = [...selectedKeys]
+        const uniqueRegIds = [
+          ...new Set(keys.map((key) => parseRowKey(key).regId)),
+        ]
+        if (
+          !confirm(
+            `Delete ${keys.length} selected sport seat(s)?\nThis removes those sports from registrations (or the whole registration if it was the last sport).\nSeat counts will update automatically.`,
+          )
+        ) {
+          return
+        }
+        tableBusy = true
+        tableError = ''
+        tableMessage = ''
+        renderAdmin(root)
+        void (async () => {
+          try {
+            // Prefer deleting whole registrations when every sport row of that reg is selected
+            const regs = getRegistrations()
+            const fullySelected: string[] = []
+            const partialKeys: string[] = []
+            for (const reg of regs) {
+              if (!uniqueRegIds.includes(reg.id)) continue
+              const sportKeys = reg.sports.length
+                ? reg.sports.map((s) => rowKey(reg.id, s.sportId))
+                : [rowKey(reg.id, null)]
+              if (sportKeys.every((k) => selectedKeys.has(k))) {
+                fullySelected.push(reg.id)
+              } else {
+                for (const k of sportKeys) {
+                  if (selectedKeys.has(k)) partialKeys.push(k)
+                }
+              }
+            }
+            let deleted = 0
+            if (fullySelected.length) {
+              deleted += await bulkDeleteRegistrations(fullySelected)
+            }
+            for (const key of partialKeys) {
+              const { regId, sportId } = parseRowKey(key)
+              await removeSportOrRegistration(regId, sportId)
+              deleted += 1
+            }
+            for (const key of keys) selectedKeys.delete(key)
+            await afterTableChange(
+              root,
+              `Deleted ${deleted} item(s). Seat counts recalculated.`,
+            )
+          } catch (error) {
+            tableBusy = false
+            tableError =
+              error instanceof Error ? error.message : 'Bulk delete failed'
+            renderAdmin(root)
+          }
+        })()
+      } else if (action === 'reset-db') {
+        if (tableBusy) return
+        const typed = prompt(
+          'This permanently deletes ALL registrations and resets seat counts.\nType RESET to confirm:',
+        )
+        if (typed !== 'RESET') return
+        tableBusy = true
+        tableError = ''
+        tableMessage = ''
+        renderAdmin(root)
+        void resetRegistrations()
+          .then(async (deleted) => {
+            selectedKeys.clear()
+            editTarget = null
+            await afterTableChange(
+              root,
+              `Database reset. Removed ${deleted} registration(s). All seats are open again.`,
+            )
+          })
+          .catch((error) => {
+            tableBusy = false
+            tableError =
+              error instanceof Error ? error.message : 'Reset failed'
+            renderAdmin(root)
+          })
       } else if (action === 'fill-all') {
         const fillInput = root.querySelector<HTMLInputElement>(
           'input[name="fillAllValue"]',
@@ -647,6 +900,153 @@ export function renderAdmin(root: HTMLElement): void {
       }
     })
   })
+
+  root.querySelector<HTMLInputElement>('[data-select-all]')?.addEventListener(
+    'change',
+    (event) => {
+      const checked = (event.target as HTMLInputElement).checked
+      for (const row of rows) {
+        const key = rowKey(row.registration.id, row.sport?.sportId)
+        if (checked) selectedKeys.add(key)
+        else selectedKeys.delete(key)
+      }
+      renderAdmin(root)
+    },
+  )
+
+  root.querySelectorAll<HTMLInputElement>('[data-select-row]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const key = input.dataset.selectRow || ''
+      if (!key) return
+      if (input.checked) selectedKeys.add(key)
+      else selectedKeys.delete(key)
+      renderAdmin(root)
+    })
+  })
+
+  root.querySelectorAll<HTMLButtonElement>('[data-edit-row]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.editRow || ''
+      if (!key) return
+      const parsed = parseRowKey(key)
+      editTarget = parsed
+      tableError = ''
+      renderAdmin(root)
+    })
+  })
+
+  root.querySelectorAll<HTMLButtonElement>('[data-delete-row]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.deleteRow || ''
+      if (!key || tableBusy) return
+      const { regId, sportId } = parseRowKey(key)
+      const reg = getRegistrations().find((r) => r.id === regId)
+      const sportName = sportId ? sportLabel(sportId) : 'entry'
+      if (
+        !confirm(
+          `Delete ${sportName} for ${reg?.fullName || regId}?\nSeat counts will update automatically.`,
+        )
+      ) {
+        return
+      }
+      tableBusy = true
+      tableError = ''
+      tableMessage = ''
+      renderAdmin(root)
+      void removeSportOrRegistration(regId, sportId)
+        .then(async () => {
+          selectedKeys.delete(key)
+          await afterTableChange(
+            root,
+            `Deleted ${sportName}. Seat counts recalculated.`,
+          )
+        })
+        .catch((error) => {
+          tableBusy = false
+          tableError =
+            error instanceof Error ? error.message : 'Delete failed'
+          renderAdmin(root)
+        })
+    })
+  })
+
+  root
+    .querySelector('[data-close-edit-backdrop]')
+    ?.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) {
+        editTarget = null
+        renderAdmin(root)
+      }
+    })
+
+  root.querySelector<HTMLFormElement>('[data-edit-form]')?.addEventListener(
+    'submit',
+    (event) => {
+      event.preventDefault()
+      if (tableBusy) return
+      const form = event.currentTarget as HTMLFormElement
+      const data = new FormData(form)
+      const regId = String(data.get('regId') || '')
+      const sportIdRaw = String(data.get('sportId') || '')
+      const reg = getRegistrations().find((r) => r.id === regId)
+      if (!reg) {
+        tableError = 'Registration not found'
+        renderAdmin(root)
+        return
+      }
+
+      const next: Registration = {
+        ...reg,
+        fullName: String(data.get('fullName') || '').trim(),
+        mobile: normalizeMobile(String(data.get('mobile') || '')),
+        location: String(data.get('location') || '').trim(),
+        gender: (String(data.get('gender') || reg.gender) as Gender) || reg.gender,
+        sports: reg.sports.map((s) => {
+          if (!sportIdRaw || s.sportId !== sportIdRaw) return s
+          const format = (String(data.get('format') || s.format) ||
+            'single') as PlayFormat
+          const updated: SelectedSport = {
+            ...s,
+            format,
+            player1Name: String(data.get('player1Name') || '').trim(),
+            player1Mobile: normalizeMobile(
+              String(data.get('player1Mobile') || ''),
+            ),
+            player2Name: String(data.get('player2Name') || '').trim(),
+            player2Mobile: normalizeMobile(
+              String(data.get('player2Mobile') || ''),
+            ),
+          }
+          return updated
+        }),
+      }
+
+      if (!next.fullName) {
+        tableError = 'Full name is required'
+        renderAdmin(root)
+        return
+      }
+
+      tableBusy = true
+      tableError = ''
+      tableMessage = ''
+      renderAdmin(root)
+      void updateRegistration(next)
+        .then(async () => {
+          editTarget = null
+          await afterTableChange(
+            root,
+            'Registration updated. Seat counts recalculated.',
+          )
+        })
+        .catch((error) => {
+          tableBusy = false
+          tableError =
+            error instanceof Error ? error.message : 'Update failed'
+          renderAdmin(root)
+        })
+    },
+  )
 
   if (activeName) {
     const restore =
