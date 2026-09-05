@@ -214,30 +214,56 @@ function slotsFor(sportId: SportId): number {
   return availableSlots(sportId, state.gender)
 }
 
+/** Shared live copy: "Women: 13 left (5/18) / સ્ત્રી: 13 બાકી (5/18)" */
+function genderSlotCopy(
+  sportId: SportId,
+  gender: Gender,
+): { en: string; gu: string; left: number } {
+  const left = availableSlots(sportId, gender)
+  const used = countSportRegistrations(sportId, gender)
+  const waiting = countWaitingRegistrations(sportId, gender)
+  const total = sportCapacity(sportId, gender)
+  const categoryEn = gender === 'male' ? 'Men' : 'Women'
+  const categoryGu = gender === 'male' ? GU.men : GU.women
+  if (left <= 0) {
+    return {
+      en: `${categoryEn}: Full · Waiting (${waiting} · ${used}/${total})`,
+      gu: `${categoryGu}: ${GU.fullWaiting} (${waiting} · ${used}/${total})`,
+      left: 0,
+    }
+  }
+  const waitNoteEn = waiting > 0 ? ` · ${waiting} waiting` : ''
+  const waitNoteGu = waiting > 0 ? ` · ${waiting} વેઇટિંગ` : ''
+  return {
+    en: `${categoryEn}: ${left} left (${used}/${total})${waitNoteEn}`,
+    gu: `${categoryGu}: ${left} ${GU.left} (${used}/${total})${waitNoteGu}`,
+    left,
+  }
+}
+
 function slotBadgeHtml(sportId: SportId): string {
   if (!state.gender) {
     return `<span class="slot-live" data-slot-sport="${sportId}">—</span>`
   }
-  const left = slotsFor(sportId)
-  const used = countSportRegistrations(sportId, state.gender)
-  const waiting = countWaitingRegistrations(sportId, state.gender)
-  const total = sportCapacity(sportId, state.gender)
-  const categoryEn = state.gender === 'male' ? 'Men' : 'Women'
-  const categoryGu = state.gender === 'male' ? GU.men : GU.women
-  if (left <= 0) {
-    return `<span class="slot-live is-full" data-slot-sport="${sportId}"><span class="slot-pulse"></span>${iconLive()} ${biText(`${categoryEn}: Full · Waiting (${waiting} · ${used}/${total})`, `${categoryGu}: ${GU.fullWaiting} (${waiting} · ${used}/${total})`)}</span>`
-  }
-  const cls = left <= 3 ? 'is-low' : ''
-  const waitNoteEn = waiting > 0 ? ` · ${waiting} waiting` : ''
-  const waitNoteGu = waiting > 0 ? ` · ${waiting} વેઇટિંગ` : ''
-  return `<span class="slot-live ${cls}" data-slot-sport="${sportId}"><span class="slot-pulse"></span>${iconLive()} ${biText(`${categoryEn}: ${left} left (${used}/${total})${waitNoteEn}`, `${categoryGu}: ${left} ${GU.left} (${used}/${total})${waitNoteGu}`)}</span>`
+  const copy = genderSlotCopy(sportId, state.gender)
+  const cls =
+    copy.left <= 0 ? 'is-full' : copy.left <= 3 ? 'is-low' : ''
+  return `<span class="slot-live ${cls}" data-slot-sport="${sportId}"><span class="slot-pulse"></span>${iconLive()} ${bi(copy.en, copy.gu)}</span>`
 }
 
 function updateLiveSlotBadges(): void {
-  if (step !== 3 || !state.gender) return
+  if (step < 2 || step > 4 || !state.gender) return
   app.querySelectorAll<HTMLElement>('[data-slot-sport]').forEach((el) => {
     const id = el.dataset.slotSport as SportId
     if (!id) return
+    const copy = genderSlotCopy(id, state.gender!)
+    if (el.classList.contains('choice-meta') || el.classList.contains('badge')) {
+      el.innerHTML = bi(copy.en, copy.gu)
+      el.classList.toggle('warn', copy.left <= 0)
+      el.classList.toggle('badge-full', copy.left <= 0 && el.classList.contains('badge'))
+      el.classList.toggle('badge-ok', copy.left > 0 && el.classList.contains('badge'))
+      return
+    }
     const next = document.createElement('div')
     next.innerHTML = slotBadgeHtml(id)
     const badge = next.firstElementChild as HTMLElement | null
@@ -742,27 +768,12 @@ function renderChoice(
   actionAttr: string,
 ): string {
   const genderSelected = !!state.gender
-  const slots = genderSelected ? slotsFor(id) : null
-  const waiting =
-    genderSelected && state.gender
-      ? countWaitingRegistrations(id, state.gender)
-      : 0
-  let meta = genderSelected
-    ? slots !== null && slots > 0
-      ? biText(
-          `${slots} ${state.gender === 'male' ? 'men' : 'women'} slot${slots === 1 ? '' : 's'} left`,
-          `${slots} ${state.gender === 'male' ? GU.men : GU.women} ${GU.slotsLeft}`,
-        )
-      : biText(
-          `Full — join waiting${waiting ? ` (${waiting})` : ''}`,
-          `${GU.joinWaiting}${waiting ? ` (${waiting})` : ''}`,
-        )
-    : biText('Select gender first', GU.selectGenderFirst)
-  let metaClass = 'choice-meta'
-
-  if (genderSelected && slots !== null && slots <= 0) {
-    metaClass = 'choice-meta warn'
-  }
+  const copy = genderSelected ? genderSlotCopy(id, state.gender!) : null
+  const meta = copy
+    ? bi(copy.en, copy.gu)
+    : bi('Select gender first', GU.selectGenderFirst)
+  const metaClass =
+    copy && copy.left <= 0 ? 'choice-meta warn' : 'choice-meta'
 
   return `
     <button
@@ -775,7 +786,7 @@ function renderChoice(
       <span class="choice-icon-wrap">${sportIcon(id)}</span>
       <span class="choice-check" aria-hidden="true"></span>
       <span class="choice-title">${sportBi(id)}</span>
-      <span class="${metaClass}">${meta}</span>
+      <span class="${metaClass}" data-slot-sport="${id}">${meta}</span>
     </button>
   `
 }
@@ -1065,11 +1076,14 @@ function reviewBadge(sport: SelectedSport): string {
   if (existing) {
     return `<span class="badge badge-warn">${bi('Already registered', GU.alreadyRegistered)}</span>`
   }
-  if (sport.status === 'waiting') {
-    return `<span class="badge badge-full">${bi('Waiting list', GU.waitingList)}</span>`
+  if (!state.gender) {
+    return `<span class="badge badge-ok">${bi('Confirmed', GU.confirmed)}</span>`
   }
-  const slots = slotsFor(sport.sportId)
-  return `<span class="badge badge-ok">${bi(`${slots} available · Confirmed`, GU.availableConfirmed(slots))}</span>`
+  const copy = genderSlotCopy(sport.sportId, state.gender)
+  if (sport.status === 'waiting' || copy.left <= 0) {
+    return `<span class="badge badge-full" data-slot-sport="${sport.sportId}">${bi(copy.en, copy.gu)}</span>`
+  }
+  return `<span class="badge badge-ok" data-slot-sport="${sport.sportId}">${bi(copy.en, copy.gu)}</span>`
 }
 
 function renderStep4(): string {
@@ -1279,7 +1293,7 @@ function render(): void {
   paintedStep = step
   bindEvents()
 
-  if (step === 3) startLiveSlotUpdates()
+  if (step >= 2 && step <= 4) startLiveSlotUpdates()
   else stopLiveSlotUpdates()
 
   if (shouldRevealErrors) {
