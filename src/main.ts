@@ -8,11 +8,17 @@ import {
   describePlayerMobileConflict,
   describeSportConflict,
   getStorageError,
+  mobileFieldError,
+  ageFieldError,
+  parseAge,
   normalizeMobile,
+  sanitizeMobileInput,
+  refreshAgeLimits,
   refreshCapacities,
   refreshRegistrations,
   saveRegistration,
 } from './storage'
+import { getSportAgeLimit } from './ageLimits'
 import {
   PRIMARY_SPORTS,
   SECONDARY_SPORTS,
@@ -72,7 +78,11 @@ function sportBiText(id: SportId): string {
   return biText(sportLabel(id), GU.sports[id] ?? sportLabel(id))
 }
 
-const emptyDoublesPlayer = (): DoublesPlayer => ({ fullName: '', mobile: '' })
+const emptyDoublesPlayer = (): DoublesPlayer => ({
+  fullName: '',
+  mobile: '',
+  age: '',
+})
 
 const state: FormState = {
   fullName: '',
@@ -127,16 +137,21 @@ function sportsNeedingPlayerDetails(): SportId[] {
   return selectedSportsList().filter(needsPlayerDetails)
 }
 
-function playerLine(name?: string, mobile?: string): string {
-  if (name && mobile) return `${name} · ${mobile}`
-  if (name) return name
-  if (mobile) return mobile
-  return ''
+function playerLine(name?: string, mobile?: string, age?: number): string {
+  const bits: string[] = []
+  if (name) bits.push(name)
+  if (mobile) bits.push(mobile)
+  if (age != null) bits.push(`Age ${age}`)
+  return bits.join(' · ')
 }
 
 function formatLabel(sport: SelectedSport): string {
   const waitTag = sport.status === 'waiting' ? ' · Waiting list' : ''
-  const player = playerLine(sport.player1Name, sport.player1Mobile)
+  const player = playerLine(
+    sport.player1Name,
+    sport.player1Mobile,
+    sport.player1Age,
+  )
 
   if (sport.sportId === 'football') {
     return player ? `Team — ${player}${waitTag}` : `Team sport${waitTag}`
@@ -146,14 +161,51 @@ function formatLabel(sport: SelectedSport): string {
   }
   if (sport.format === 'double') {
     if (sport.player1Name && sport.player2Name) {
-      const p1 = playerLine(sport.player1Name, sport.player1Mobile)
-      const p2 = playerLine(sport.player2Name, sport.player2Mobile)
+      const p1 = playerLine(
+        sport.player1Name,
+        sport.player1Mobile,
+        sport.player1Age,
+      )
+      const p2 = playerLine(
+        sport.player2Name,
+        sport.player2Mobile,
+        sport.player2Age,
+      )
       return `Doubles — P1: ${p1} | P2: ${p2}${waitTag}`
     }
     return `Doubles${waitTag}`
   }
   if (player) return `Singles — ${player}${waitTag}`
   return `Singles${waitTag}`
+}
+
+function bilingualMobileError(raw: string, required = true): string | null {
+  const en = mobileFieldError(raw, { required })
+  if (!en) return null
+  if (en.includes('+91')) {
+    return biText(en, GU.errMobileNoCountry)
+  }
+  if (en.includes('start with 0')) {
+    return biText(en, GU.errMobileNoZero)
+  }
+  if (en.includes('required')) {
+    return biText(en, GU.errMobileRequired)
+  }
+  return biText(en, GU.errMobileValid)
+}
+
+function bilingualAgeError(
+  raw: string,
+  sportId: SportId,
+  required = true,
+): string | null {
+  const en = ageFieldError(raw, { required, sportId })
+  if (!en) return null
+  if (en.includes('required')) {
+    return biText(en, GU.errAgeRequired)
+  }
+  const { minAge, maxAge } = getSportAgeLimit(sportId)
+  return biText(en, GU.errAgeValid(minAge, maxAge))
 }
 
 function ensureDoublesPlayers(id: SportId): DoublesPlayers {
@@ -178,11 +230,18 @@ function buildSelectedSports(): SelectedSport[] {
     const player1Mobile = players
       ? normalizeMobile(players.player1.mobile)
       : undefined
+    const player1Age = players
+      ? parseAge(players.player1.age, sportId)
+      : undefined
     const player2Name =
       format === 'double' ? players?.player2.fullName.trim() : undefined
     const player2Mobile =
       format === 'double' && players
         ? normalizeMobile(players.player2.mobile)
+        : undefined
+    const player2Age =
+      format === 'double' && players
+        ? parseAge(players.player2.age, sportId)
         : undefined
 
     const weight = seatWeight(format)
@@ -195,8 +254,10 @@ function buildSelectedSports(): SelectedSport[] {
       status,
       ...(player1Name ? { player1Name } : {}),
       ...(player1Mobile ? { player1Mobile } : {}),
+      ...(player1Age != null ? { player1Age } : {}),
       ...(player2Name ? { player2Name } : {}),
       ...(player2Mobile ? { player2Mobile } : {}),
+      ...(player2Age != null ? { player2Age } : {}),
     }
   })
 }
@@ -205,8 +266,11 @@ function validateDetails(): boolean {
   detailErrors = {}
   const name = state.fullName.trim()
 
-  // Step 1 is informational — mobile is collected but not validated here.
   if (!name) detailErrors.fullName = biText('Full name is required', GU.errFullName)
+
+  const mobileErr = bilingualMobileError(state.mobile, true)
+  if (mobileErr) detailErrors.mobile = mobileErr
+  else state.mobile = sanitizeMobileInput(state.mobile)
 
   return Object.keys(detailErrors).length === 0
 }
@@ -309,18 +373,26 @@ function validateSports(): boolean {
 
 function validatePlayer1(
   players: DoublesPlayers | undefined,
+  sportId: SportId,
 ): Partial<DoublesPlayer> | undefined {
   const p1Name = players?.player1.fullName.trim() ?? ''
-  const p1Mobile = normalizeMobile(players?.player1.mobile ?? '')
+  const p1MobileRaw = players?.player1.mobile ?? ''
+  const p1AgeRaw = players?.player1.age ?? ''
   const errors: Partial<DoublesPlayer> = {}
 
   if (!p1Name) errors.fullName = biText('Full name is required', GU.errFullName)
-  if (!p1Mobile) errors.mobile = biText('Mobile number is required', GU.errMobileRequired)
-  else if (p1Mobile.length < 10) {
-    errors.mobile = biText('Enter a valid 10-digit mobile number', GU.errMobileValid)
-  }
+
+  const mobileErr = bilingualMobileError(p1MobileRaw, true)
+  if (mobileErr) errors.mobile = mobileErr
+
+  const ageErr = bilingualAgeError(p1AgeRaw, sportId, true)
+  if (ageErr) errors.age = ageErr
 
   return Object.keys(errors).length > 0 ? errors : undefined
+}
+
+function isValidMobileLocal(raw: string): boolean {
+  return mobileFieldError(raw, { required: true }) === null
 }
 
 function validateFormats(): boolean {
@@ -344,11 +416,11 @@ function validateFormats(): boolean {
       player2?: Partial<DoublesPlayer>
     } = {}
 
-    const p1Errors = validatePlayer1(players)
+    const p1Errors = validatePlayer1(players, id)
     if (p1Errors) errors.player1 = p1Errors
 
     const p1MobileCheck = normalizeMobile(players?.player1.mobile ?? '')
-    if (p1MobileCheck.length >= 10) {
+    if (isValidMobileLocal(players?.player1.mobile ?? '')) {
       const conflict = describePlayerMobileConflict(
         p1MobileCheck,
         id,
@@ -363,20 +435,42 @@ function validateFormats(): boolean {
       const p1Name = players?.player1.fullName.trim() ?? ''
       const p1Mobile = normalizeMobile(players?.player1.mobile ?? '')
       const p2Name = players?.player2.fullName.trim() ?? ''
-      const p2Mobile = normalizeMobile(players?.player2.mobile ?? '')
+      const p2MobileRaw = players?.player2.mobile ?? ''
+      const p2Mobile = normalizeMobile(p2MobileRaw)
+      const p2AgeRaw = players?.player2.age ?? ''
 
       if (!p2Name) {
-        errors.player2 = { ...errors.player2, fullName: biText('Player 2 full name is required', GU.errPlayer2Name) }
-      }
-      if (!p2Mobile) {
         errors.player2 = {
           ...errors.player2,
-          mobile: biText('Player 2 mobile number is required', GU.errPlayer2Mobile),
+          fullName: biText('Player 2 full name is required', GU.errPlayer2Name),
         }
-      } else if (p2Mobile.length < 10) {
+      }
+
+      const p2MobileErr = bilingualMobileError(p2MobileRaw, true)
+      if (p2MobileErr) {
+        const mapped = p2MobileErr.includes('required')
+          ? biText('Player 2 mobile number is required', GU.errPlayer2Mobile)
+          : p2MobileErr.includes('+91')
+            ? biText(
+                'Do not include +91 — enter a 10-digit mobile number only',
+                GU.errMobileNoCountry,
+              )
+            : p2MobileErr.includes('start with 0')
+              ? biText('Mobile number cannot start with 0', GU.errMobileNoZero)
+              : biText(
+                  'Enter a valid 10-digit mobile for Player 2',
+                  GU.errPlayer2MobileValid,
+                )
+        errors.player2 = { ...errors.player2, mobile: mapped }
+      }
+
+      const p2AgeErr = bilingualAgeError(p2AgeRaw, id, true)
+      if (p2AgeErr) {
         errors.player2 = {
           ...errors.player2,
-          mobile: biText('Enter a valid 10-digit mobile for Player 2', GU.errPlayer2MobileValid),
+          age: p2AgeErr.includes('required')
+            ? biText('Player 2 age is required', GU.errPlayer2Age)
+            : p2AgeErr,
         }
       }
 
@@ -387,18 +481,27 @@ function validateFormats(): boolean {
       ) {
         errors.player2 = {
           ...errors.player2,
-          fullName: biText('Player 2 name must be different from Player 1', GU.errNamesDifferent),
+          fullName: biText(
+            'Player 2 name must be different from Player 1',
+            GU.errNamesDifferent,
+          ),
         }
       }
 
       if (p1Mobile && p2Mobile && p1Mobile === p2Mobile) {
         errors.player2 = {
           ...errors.player2,
-          mobile: biText('Player 2 mobile must be different from Player 1', GU.errMobilesDifferent),
+          mobile: biText(
+            'Player 2 mobile must be different from Player 1',
+            GU.errMobilesDifferent,
+          ),
         }
       }
 
-      if (p2Mobile.length >= 10 && !(p1Mobile && p1Mobile === p2Mobile)) {
+      if (
+        isValidMobileLocal(p2MobileRaw) &&
+        !(p1Mobile && p1Mobile === p2Mobile)
+      ) {
         const conflict = describePlayerMobileConflict(
           p2Mobile,
           id,
@@ -425,7 +528,7 @@ function validateFormats(): boolean {
 
   if (Object.keys(doublesErrors).length > 0) {
     formatError = biText(
-      'Fix player details — full name and mobile are required, and a mobile may already be registered for this sport',
+      'Fix player details — full name, mobile and age are required, and a mobile may already be registered for this sport',
       GU.errFixPlayers,
     )
     return false
@@ -798,7 +901,7 @@ function renderStep1(): string {
   return `
     <div class="fade-step">
       <h2 class="step-title"><span class="step-title-icon">${iconUser()}</span> ${bi('Enter your details', GU.detailsTitle)}</h2>
-      <p class="step-sub">${bi('Basic information only — mobile is not validated on this step.', GU.detailsSub)}</p>
+      <p class="step-sub">${bi('Enter your full name and a 10-digit mobile number (no +91 or leading 0).', GU.detailsSub)}</p>
 
       ${apiError ? `<div class="alert is-error">${bilingualHtml(apiError)}</div>` : ''}
 
@@ -819,7 +922,8 @@ function renderStep1(): string {
           ${iconPhone()}
           <input id="mobile" name="mobile" type="tel" inputmode="numeric" autocomplete="tel"
             class="${detailErrors.mobile ? 'is-invalid' : ''}"
-            value="${escapeAttr(state.mobile)}" placeholder="${escapeAttr(biText('Mobile number', GU.placeholderMobile))}" maxlength="15" />
+            value="${escapeAttr(state.mobile)}" placeholder="${escapeAttr(biText('10-digit mobile', GU.placeholderMobile))}"
+            maxlength="12" pattern="[1-9][0-9]{9}" />
         </div>
         ${detailErrors.mobile ? `<span class="error">${bilingualHtml(detailErrors.mobile)}</span>` : ''}
       </div>
@@ -913,6 +1017,7 @@ function renderPlayerFields(
   },
   options: { showPlayer2: boolean; showOrganizerNotice: boolean },
 ): string {
+  const ageLimit = getSportAgeLimit(id)
   return `
     <div class="partner-field">
       <div class="player-block">
@@ -933,8 +1038,18 @@ function renderPlayerFields(
               class="${errors.player1?.mobile ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="mobile"
               value="${escapeAttr(players.player1.mobile)}"
-              placeholder="${escapeAttr(biText('Mobile number', GU.placeholderMobile))}" maxlength="15" required />
+              placeholder="${escapeAttr(biText('10-digit mobile', GU.placeholderMobile))}"
+              maxlength="12" pattern="[1-9][0-9]{9}" required />
             ${errors.player1?.mobile ? `<span class="error">${bilingualHtml(errors.player1.mobile)}</span>` : ''}
+          </div>
+          <div class="field ${errors.player1?.age ? 'is-invalid' : ''}">
+            <label for="player1-age-${id}">${bi('Age', GU.age)}</label>
+            <input id="player1-age-${id}" type="number" inputmode="numeric" min="${ageLimit.minAge}" max="${ageLimit.maxAge}" step="1"
+              class="${errors.player1?.age ? 'is-invalid' : ''}"
+              data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="age"
+              value="${escapeAttr(players.player1.age)}"
+              placeholder="${escapeAttr(biText(`${ageLimit.minAge}–${ageLimit.maxAge}`, GU.placeholderAge))}" required />
+            ${errors.player1?.age ? `<span class="error">${bilingualHtml(errors.player1.age)}</span>` : ''}
           </div>
         </div>
       </div>
@@ -976,8 +1091,18 @@ function renderPlayerFields(
               class="${errors.player2?.mobile ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="mobile"
               value="${escapeAttr(players.player2.mobile)}"
-              placeholder="${escapeAttr(biText('Player 2 mobile number', 'ખેલાડી ૨ મોબાઇલ નંબર'))}" maxlength="15" />
+              placeholder="${escapeAttr(biText('10-digit mobile', GU.placeholderMobile))}"
+              maxlength="12" pattern="[1-9][0-9]{9}" />
             ${errors.player2?.mobile ? `<span class="error">${bilingualHtml(errors.player2.mobile)}</span>` : ''}
+          </div>
+          <div class="field ${errors.player2?.age ? 'is-invalid' : ''}">
+            <label for="player2-age-${id}">${bi('Age', GU.age)}</label>
+            <input id="player2-age-${id}" type="number" inputmode="numeric" min="${ageLimit.minAge}" max="${ageLimit.maxAge}" step="1"
+              class="${errors.player2?.age ? 'is-invalid' : ''}"
+              data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="age"
+              value="${escapeAttr(players.player2.age)}"
+              placeholder="${escapeAttr(biText(`${ageLimit.minAge}–${ageLimit.maxAge}`, GU.placeholderAge))}" />
+            ${errors.player2?.age ? `<span class="error">${bilingualHtml(errors.player2.age)}</span>` : ''}
           </div>
         </div>
       </div>
@@ -996,7 +1121,7 @@ function renderStep3(): string {
     <div class="fade-step">
       <h2 class="step-title">${hasFormatSports ? bi('Format & player details', GU.formatTitle) : bi('Player details', GU.playerDetailsTitle)}</h2>
       <p class="step-sub">
-        ${bi('Full name and mobile are required for each sport.', GU.formatSub)}
+        ${bi('Full name, mobile and age are required for each sport.', GU.formatSub)}
         ${hasFormatSports ? bi('For racket sports, also choose Single or Doubles. ', GU.formatSubRacket) : ''}
         ${category ? `${bi(`Live ${category} slot counts update instantly.`, `લાઇવ ${category === 'Male' ? GU.men : GU.women} સ્લોટ તરત અપડેટ થાય છે.`)}` : ''}
       </p>
@@ -1026,7 +1151,7 @@ function renderStep3(): string {
           </div>
           ${
             playerOnly
-              ? `<p class="step-sub" style="margin:0 0 0.85rem">${bi(`Enter the player full name and mobile for ${sportLabel(id)}.`, GU.playerOnlyHint(sportBiText(id)))}</p>`
+              ? `<p class="step-sub" style="margin:0 0 0.85rem">${bi(`Enter the player full name, mobile and age for ${sportLabel(id)}.`, GU.playerOnlyHint(sportBiText(id)))}</p>`
               : `
           <div class="format-options ${missingFormat ? 'is-invalid' : ''}">
             <button type="button"
@@ -1332,7 +1457,7 @@ function checkPlayerMobileConflict(
     }
   }
 
-  if (!normalized || normalized.length < 10) return
+  if (!normalized || !isValidMobileLocal(mobile)) return
 
   const conflict = describePlayerMobileConflict(
     normalized,
@@ -1375,7 +1500,15 @@ function bindEvents(): void {
 
       if (doublesSport && doublesPlayer && doublesField) {
         const players = ensureDoublesPlayers(doublesSport)
-        players[doublesPlayer][doublesField] = input.value
+        let nextValue = input.value
+        if (doublesField === 'mobile') {
+          nextValue = sanitizeMobileInput(input.value)
+          if (input.value !== nextValue) input.value = nextValue
+        } else if (doublesField === 'age') {
+          nextValue = input.value.replace(/\D/g, '').slice(0, 3)
+          if (input.value !== nextValue) input.value = nextValue
+        }
+        players[doublesPlayer][doublesField] = nextValue
         if (doublesErrors[doublesSport]?.[doublesPlayer]?.[doublesField]) {
           delete doublesErrors[doublesSport]![doublesPlayer]![doublesField]
           const field = input.closest('.field')
@@ -1388,7 +1521,13 @@ function bindEvents(): void {
 
       const key = input.name as 'fullName' | 'mobile'
       if (key === 'fullName' || key === 'mobile') {
-        state[key] = input.value
+        if (key === 'mobile') {
+          const next = sanitizeMobileInput(input.value)
+          if (input.value !== next) input.value = next
+          state.mobile = next
+        } else {
+          state.fullName = input.value
+        }
         if (detailErrors[key]) {
           delete detailErrors[key]
           const field = input.closest('.field')
@@ -1474,7 +1613,11 @@ function route(): void {
 }
 
 async function boot(): Promise<void> {
-  await Promise.all([refreshRegistrations(), refreshCapacities()])
+  await Promise.all([
+    refreshRegistrations(),
+    refreshCapacities(),
+    refreshAgeLimits(),
+  ])
   connectRealtime()
   onRealtimeUpdate(() => {
     if (isAdminRoute()) return

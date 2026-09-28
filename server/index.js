@@ -31,6 +31,15 @@ const DEFAULT_CAPACITIES = {
   badminton: { male: 16, female: 16 },
 }
 
+const DEFAULT_AGE_LIMITS = {
+  football: { minAge: 5, maxAge: 100 },
+  pickleball: { minAge: 5, maxAge: 100 },
+  carrom: { minAge: 5, maxAge: 100 },
+  chess: { minAge: 5, maxAge: 100 },
+  tt: { minAge: 5, maxAge: 100 },
+  badminton: { minAge: 5, maxAge: 100 },
+}
+
 const SPORT_IDS = Object.keys(DEFAULT_CAPACITIES)
 
 function normalizeCapacities(input) {
@@ -52,12 +61,95 @@ function normalizeCapacities(input) {
   return out
 }
 
+function clampAgePair(minRaw, maxRaw, fallback) {
+  let minAge = Math.floor(Number(minRaw))
+  let maxAge = Math.floor(Number(maxRaw))
+  if (!Number.isFinite(minAge)) minAge = fallback.minAge
+  if (!Number.isFinite(maxAge)) maxAge = fallback.maxAge
+  minAge = Math.max(1, Math.min(120, minAge))
+  maxAge = Math.max(1, Math.min(120, maxAge))
+  if (minAge > maxAge) {
+    const swap = minAge
+    minAge = maxAge
+    maxAge = swap
+  }
+  return { minAge, maxAge }
+}
+
+function normalizeAgeLimits(input) {
+  const source = input && typeof input === 'object' ? input : {}
+  const out = {}
+
+  // Legacy global { minAge, maxAge } → apply to every sport
+  const looksLegacy =
+    !SPORT_IDS.some((id) => id in source) &&
+    (source.minAge != null || source.maxAge != null)
+  if (looksLegacy) {
+    const pair = clampAgePair(source.minAge, source.maxAge, {
+      minAge: 5,
+      maxAge: 100,
+    })
+    for (const id of SPORT_IDS) out[id] = { ...pair }
+    return out
+  }
+
+  for (const id of SPORT_IDS) {
+    const pair = source[id] || {}
+    const fallback = DEFAULT_AGE_LIMITS[id]
+    out[id] = clampAgePair(pair.minAge, pair.maxAge, fallback)
+  }
+  return out
+}
+
 async function readCapacities() {
   const result = await pool.query(
     `SELECT value FROM settings WHERE key = 'capacities' LIMIT 1`,
   )
   if (result.rowCount === 0) return { ...DEFAULT_CAPACITIES }
   return normalizeCapacities(result.rows[0].value)
+}
+
+async function readAgeLimits() {
+  const result = await pool.query(
+    `SELECT value FROM settings WHERE key = 'age_limits' LIMIT 1`,
+  )
+  if (result.rowCount === 0) return normalizeAgeLimits(DEFAULT_AGE_LIMITS)
+  return normalizeAgeLimits(result.rows[0].value)
+}
+
+function sportsAgeError(sports, limitsBySport) {
+  const list = Array.isArray(sports) ? sports : []
+  for (const sport of list) {
+    const sportId = sport?.sportId
+    const limits = limitsBySport?.[sportId] || { minAge: 5, maxAge: 100 }
+    const checks = [
+      {
+        label: 'Player 1',
+        age: sport?.player1Age,
+        required: Boolean(sport?.player1Name || sport?.player1Mobile),
+      },
+      {
+        label: 'Player 2',
+        age: sport?.player2Age,
+        required:
+          sport?.format === 'double' &&
+          Boolean(sport?.player2Name || sport?.player2Mobile),
+      },
+    ]
+    for (const check of checks) {
+      if (check.age == null || check.age === '') {
+        if (check.required) {
+          return `${check.label} age is required for ${sportId} (allowed ${limits.minAge}–${limits.maxAge})`
+        }
+        continue
+      }
+      const age = Math.floor(Number(check.age))
+      if (!Number.isFinite(age) || age < limits.minAge || age > limits.maxAge) {
+        return `${check.label} age for ${sportId} must be between ${limits.minAge} and ${limits.maxAge}`
+      }
+    }
+  }
+  return null
 }
 
 async function ensureSchema() {
@@ -92,6 +184,16 @@ async function ensureSchema() {
     await pool.query(
       `INSERT INTO settings (key, value) VALUES ('capacities', $1::jsonb)`,
       [JSON.stringify(DEFAULT_CAPACITIES)],
+    )
+  }
+
+  const ageExisting = await pool.query(
+    `SELECT value FROM settings WHERE key = 'age_limits' LIMIT 1`,
+  )
+  if (ageExisting.rowCount === 0) {
+    await pool.query(
+      `INSERT INTO settings (key, value) VALUES ('age_limits', $1::jsonb)`,
+      [JSON.stringify(DEFAULT_AGE_LIMITS)],
     )
   }
 }
@@ -136,6 +238,10 @@ function broadcastRegistrationsUpdated() {
 
 function broadcastCapacitiesUpdated() {
   broadcast('capacities-updated')
+}
+
+function broadcastAgeLimitsUpdated() {
+  broadcast('age-limits-updated')
 }
 
 /** Singles/team = 1 seat; doubles = 2 seats against that gender quota. */
@@ -309,6 +415,33 @@ app.put('/api/capacities', async (req, res) => {
   }
 })
 
+app.get('/api/age-limits', async (_req, res) => {
+  try {
+    res.json(await readAgeLimits())
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: 'Failed to load age limits' })
+  }
+})
+
+app.put('/api/age-limits', async (req, res) => {
+  try {
+    const ageLimits = normalizeAgeLimits(req.body)
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at)
+       VALUES ('age_limits', $1::jsonb, NOW())
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value, updated_at = NOW()`,
+      [JSON.stringify(ageLimits)],
+    )
+    broadcastAgeLimitsUpdated()
+    res.json(ageLimits)
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: 'Failed to save age limits' })
+  }
+})
+
 app.get('/api/registrations', async (_req, res) => {
   try {
     const result = await pool.query(
@@ -336,6 +469,13 @@ app.post('/api/registrations', async (req, res) => {
 
     if (!id || !fullName || sports.length === 0) {
       res.status(400).json({ error: 'Missing required registration fields' })
+      return
+    }
+
+    const ageLimits = await readAgeLimits()
+    const ageError = sportsAgeError(sports, ageLimits)
+    if (ageError) {
+      res.status(400).json({ error: ageError })
       return
     }
 
@@ -409,6 +549,13 @@ app.put('/api/registrations/:id', async (req, res) => {
     )
     if (existing.rowCount === 0) {
       res.status(404).json({ error: 'Registration not found' })
+      return
+    }
+
+    const ageLimits = await readAgeLimits()
+    const ageError = sportsAgeError(sports, ageLimits)
+    if (ageError) {
+      res.status(400).json({ error: ageError })
       return
     }
 

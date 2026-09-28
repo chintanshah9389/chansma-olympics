@@ -593,7 +593,7 @@ input.is-invalid,
 
 .player-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1.4fr 1.2fr 0.7fr;
   gap: 0.75rem;
   margin-bottom: 0.35rem;
 }
@@ -1091,6 +1091,45 @@ input.is-invalid,
   color: var(--success);
   font-size: 0.88rem;
   font-weight: 600;
+}
+
+.age-limits-panel {
+  margin-top: 1rem;
+}
+
+.age-limits-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem 1.25rem;
+}
+
+.age-limit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--navy);
+  min-width: 7.5rem;
+}
+
+.age-limit-field input {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.55rem 0.65rem;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  width: 7.5rem;
+}
+
+.age-limits-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  align-self: center;
 }
 
 .capacity-table-wrap {

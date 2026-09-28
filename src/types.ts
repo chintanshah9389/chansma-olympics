@@ -25,6 +25,7 @@ export interface SportConfig {
 export interface DoublesPlayer {
   fullName: string
   mobile: string
+  age: string
 }
 
 export interface DoublesPlayers {
@@ -38,8 +39,10 @@ export interface SelectedSport {
   status: SportSeatStatus
   player1Name?: string
   player1Mobile?: string
+  player1Age?: number
   player2Name?: string
   player2Mobile?: string
+  player2Age?: number
 }
 
 export interface Registration {

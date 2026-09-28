@@ -4,13 +4,18 @@ import {
   getRegistrations,
   getStorageError,
   normalizeMobile,
+  parseAge,
+  refreshAgeLimits,
   refreshCapacities,
   refreshRegistrations,
   resetRegistrations,
+  sanitizeMobileInput,
+  saveAgeLimits,
   saveCapacities,
   seatWeight,
   updateRegistration,
 } from './storage'
+import { applyAgeLimits, getAgeLimits, getSportAgeLimit, type SportAgeLimits } from './ageLimits'
 import {
   ALL_SPORT_IDS,
   getCapacities,
@@ -52,6 +57,10 @@ let capacityDraft: SportCapacities | null = null
 let capacityMessage = ''
 let capacityError = ''
 let capacitySaving = false
+let ageDraft: SportAgeLimits | null = null
+let ageMessage = ''
+let ageError = ''
+let ageSaving = false
 let tableMessage = ''
 let tableError = ''
 let tableBusy = false
@@ -79,6 +88,15 @@ function ensureCapacityDraft(): SportCapacities {
 
 function syncCapacityDraftFromLive(): void {
   capacityDraft = structuredClone(getCapacities())
+}
+
+function ensureAgeDraft(): SportAgeLimits {
+  if (!ageDraft) ageDraft = structuredClone(getAgeLimits())
+  return ageDraft
+}
+
+function syncAgeDraftFromLive(): void {
+  ageDraft = structuredClone(getAgeLimits())
 }
 
 function escapeHtml(value: string): string {
@@ -215,8 +233,10 @@ function matchesQuery(row: FlatRow, q: string): boolean {
     statusLabel(row),
     s?.player1Name ?? '',
     s?.player1Mobile ?? '',
+    s?.player1Age != null ? String(s.player1Age) : '',
     s?.player2Name ?? '',
     s?.player2Mobile ?? '',
+    s?.player2Age != null ? String(s.player2Age) : '',
   ]
     .join(' ')
     .toLowerCase()
@@ -263,8 +283,10 @@ function rowHtml(row: FlatRow, index: number): string {
       <td>${escapeHtml(r.location)}</td>
       <td>${escapeHtml(s?.player1Name || '—')}</td>
       <td>${escapeHtml(s?.player1Mobile || '—')}</td>
+      <td>${escapeHtml(s?.player1Age != null ? String(s.player1Age) : '—')}</td>
       <td>${escapeHtml(s?.player2Name || '—')}</td>
       <td>${escapeHtml(s?.player2Mobile || '—')}</td>
+      <td>${escapeHtml(s?.player2Age != null ? String(s.player2Age) : '—')}</td>
       <td class="col-ref"><code>${escapeHtml(r.id)}</code></td>
       <td class="col-when">${escapeHtml(formatWhen(r.createdAt))}</td>
       <td class="col-actions">
@@ -326,13 +348,19 @@ function editModalHtml(): string {
               <input name="player1Name" type="text" value="${escapeHtml(sport.player1Name ?? '')}" />
             </label>
             <label>Player 1 mobile
-              <input name="player1Mobile" type="tel" value="${escapeHtml(sport.player1Mobile ?? '')}" />
+              <input name="player1Mobile" type="tel" maxlength="10" value="${escapeHtml(sport.player1Mobile ?? '')}" />
+            </label>
+            <label>Player 1 age
+              <input name="player1Age" type="number" min="${getSportAgeLimit(sport.sportId).minAge}" max="${getSportAgeLimit(sport.sportId).maxAge}" value="${escapeHtml(sport.player1Age != null ? String(sport.player1Age) : '')}" />
             </label>
             <label>Player 2 name
               <input name="player2Name" type="text" value="${escapeHtml(sport.player2Name ?? '')}" />
             </label>
             <label>Player 2 mobile
-              <input name="player2Mobile" type="tel" value="${escapeHtml(sport.player2Mobile ?? '')}" />
+              <input name="player2Mobile" type="tel" maxlength="10" value="${escapeHtml(sport.player2Mobile ?? '')}" />
+            </label>
+            <label>Player 2 age
+              <input name="player2Age" type="number" min="${getSportAgeLimit(sport.sportId).minAge}" max="${getSportAgeLimit(sport.sportId).maxAge}" value="${escapeHtml(sport.player2Age != null ? String(sport.player2Age) : '')}" />
             </label>
             `
                 : ''
@@ -373,8 +401,13 @@ async function afterTableChange(
   root: HTMLElement,
   message: string,
 ): Promise<void> {
-  await Promise.all([refreshRegistrations(), refreshCapacities()])
+  await Promise.all([
+    refreshRegistrations(),
+    refreshCapacities(),
+    refreshAgeLimits(),
+  ])
   syncCapacityDraftFromLive()
+  syncAgeDraftFromLive()
   tableMessage = message
   tableError = ''
   tableBusy = false
@@ -398,8 +431,10 @@ function downloadCsv(rows: FlatRow[]): void {
     'Location',
     'Player 1 Name',
     'Player 1 Mobile',
+    'Player 1 Age',
     'Player 2 Name',
     'Player 2 Mobile',
+    'Player 2 Age',
     'Reference',
     'Registered At',
   ]
@@ -420,8 +455,10 @@ function downloadCsv(rows: FlatRow[]): void {
         r.location,
         s?.player1Name ?? '',
         s?.player1Mobile ?? '',
+        s?.player1Age != null ? String(s.player1Age) : '',
         s?.player2Name ?? '',
         s?.player2Mobile ?? '',
+        s?.player2Age != null ? String(s.player2Age) : '',
         r.id,
         r.createdAt,
       ]
@@ -463,7 +500,9 @@ function scheduleAdminRealtimeRefresh(): void {
     realtimeRefreshTimer = null
     if (!adminRoot || !isAdminRoute()) return
     const editingCap = adminRoot.querySelector('[data-cap-sport]:focus')
+    const editingAge = adminRoot.querySelector('[data-age-sport]:focus')
     if (!editingCap) syncCapacityDraftFromLive()
+    if (!editingAge) syncAgeDraftFromLive()
     renderAdmin(adminRoot)
   }, 100)
 }
@@ -615,6 +654,73 @@ export function renderAdmin(root: HTMLElement): void {
           </div>
         </section>
 
+        <section class="capacity-panel age-limits-panel">
+          <div class="capacity-top">
+            <div class="capacity-intro">
+              <p class="capacity-kicker">Live settings</p>
+              <h2 class="capacity-title">Age restriction by sport</h2>
+              <p class="capacity-sub">Set min and max age for each sport. Registration validates player ages against that sport’s limits.</p>
+            </div>
+            <div class="capacity-toolbar">
+              <div class="capacity-fill">
+                <span class="capacity-fill-label">Fill all</span>
+                <input type="number" min="1" max="120" step="1" name="fillAgeMin" value="5" aria-label="Fill all min age" />
+                <span class="capacity-fill-label">–</span>
+                <input type="number" min="1" max="120" step="1" name="fillAgeMax" value="100" aria-label="Fill all max age" />
+                <button type="button" class="btn btn-ghost" data-admin="fill-all-ages">Use for every sport</button>
+              </div>
+              <button type="button" class="btn btn-gold" data-admin="apply-age-limits" ${ageSaving ? 'disabled' : ''}>
+                ${ageSaving ? 'Saving…' : 'Apply age limits'}
+              </button>
+            </div>
+          </div>
+
+          ${
+            ageError
+              ? `<div class="alert">${escapeHtml(ageError)}</div>`
+              : ''
+          }
+          ${
+            ageMessage
+              ? `<div class="capacity-ok">${escapeHtml(ageMessage)}</div>`
+              : ''
+          }
+
+          <div class="capacity-table-wrap">
+            <table class="capacity-table">
+              <thead>
+                <tr>
+                  <th scope="col">Sport</th>
+                  <th scope="col">Min age</th>
+                  <th scope="col">Max age</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ALL_SPORT_IDS.map((id) => {
+                  const ages = ensureAgeDraft()[id]
+                  return `
+                  <tr>
+                    <th scope="row"><span class="sport-heading">${sportIcon(id)} ${sportLabel(id)}</span></th>
+                    <td>
+                      <input type="number" min="1" max="120" step="1"
+                        id="age-min-${id}"
+                        data-age-sport="${id}" data-age-bound="min"
+                        value="${ages.minAge}" aria-label="${sportLabel(id)} min age" />
+                    </td>
+                    <td>
+                      <input type="number" min="1" max="120" step="1"
+                        id="age-max-${id}"
+                        data-age-sport="${id}" data-age-bound="max"
+                        value="${ages.maxAge}" aria-label="${sportLabel(id)} max age" />
+                    </td>
+                  </tr>
+                `
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <div class="admin-toolbar">
           <div class="admin-stats">
             <span><strong>${regs.length}</strong> registrations</span>
@@ -712,8 +818,10 @@ export function renderAdmin(root: HTMLElement): void {
                 <th>Location</th>
                 <th>Player 1</th>
                 <th>P1 mobile</th>
+                <th>P1 age</th>
                 <th>Player 2</th>
                 <th>P2 mobile</th>
+                <th>P2 age</th>
                 <th>Reference</th>
                 <th>Registered</th>
                 <th class="col-actions">Actions</th>
@@ -723,7 +831,7 @@ export function renderAdmin(root: HTMLElement): void {
               ${
                 rows.length
                   ? rows.map((row, i) => rowHtml(row, i)).join('')
-                  : `<tr><td colspan="16" class="admin-empty">No rows match these filters.</td></tr>`
+                  : `<tr><td colspan="18" class="admin-empty">No rows match these filters.</td></tr>`
               }
             </tbody>
           </table>
@@ -772,21 +880,42 @@ export function renderAdmin(root: HTMLElement): void {
     })
   })
 
+  root.querySelectorAll<HTMLInputElement>('[data-age-sport]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const sportId = input.dataset.ageSport as SportId
+      const bound = input.dataset.ageBound as 'min' | 'max'
+      const draft = ensureAgeDraft()
+      const value = Math.max(
+        1,
+        Math.min(120, Math.floor(Number(input.value) || (bound === 'min' ? 5 : 100))),
+      )
+      if (bound === 'min') draft[sportId].minAge = value
+      else draft[sportId].maxAge = value
+      ageMessage = ''
+      ageError = ''
+    })
+  })
+
   root.querySelectorAll<HTMLButtonElement>('[data-admin]').forEach((btn) => {
     btn.addEventListener('click', (event) => {
       event.stopPropagation()
       const action = btn.dataset.admin
       if (action === 'refresh') {
-        void Promise.all([refreshRegistrations(), refreshCapacities()]).then(
-          () => {
-            syncCapacityDraftFromLive()
-            capacityMessage = ''
-            capacityError = ''
-            tableMessage = ''
-            tableError = ''
-            renderAdmin(root)
-          },
-        )
+        void Promise.all([
+          refreshRegistrations(),
+          refreshCapacities(),
+          refreshAgeLimits(),
+        ]).then(() => {
+          syncCapacityDraftFromLive()
+          syncAgeDraftFromLive()
+          capacityMessage = ''
+          capacityError = ''
+          ageMessage = ''
+          ageError = ''
+          tableMessage = ''
+          tableError = ''
+          renderAdmin(root)
+        })
       } else if (action === 'csv') {
         downloadCsv(rows)
       } else if (action === 'clear') {
@@ -798,6 +927,58 @@ export function renderAdmin(root: HTMLElement): void {
       } else if (action === 'close-edit') {
         editTarget = null
         renderAdmin(root)
+      } else if (action === 'fill-all-ages') {
+        const minInput = root.querySelector<HTMLInputElement>(
+          'input[name="fillAgeMin"]',
+        )
+        const maxInput = root.querySelector<HTMLInputElement>(
+          'input[name="fillAgeMax"]',
+        )
+        let minAge = Math.max(1, Math.min(120, Math.floor(Number(minInput?.value) || 5)))
+        let maxAge = Math.max(1, Math.min(120, Math.floor(Number(maxInput?.value) || 100)))
+        if (minAge > maxAge) {
+          const swap = minAge
+          minAge = maxAge
+          maxAge = swap
+        }
+        const draft = ensureAgeDraft()
+        for (const id of ALL_SPORT_IDS) {
+          draft[id] = { minAge, maxAge }
+        }
+        ageMessage = `Filled all sports to ${minAge}–${maxAge} — click Apply age limits to save.`
+        ageError = ''
+        renderAdmin(root)
+      } else if (action === 'apply-age-limits') {
+        const draft = ensureAgeDraft()
+        for (const id of ALL_SPORT_IDS) {
+          if (draft[id].minAge > draft[id].maxAge) {
+            ageError = `${sportLabel(id)}: min age cannot be greater than max age`
+            ageMessage = ''
+            renderAdmin(root)
+            return
+          }
+        }
+        ageSaving = true
+        ageError = ''
+        ageMessage = ''
+        renderAdmin(root)
+        void saveAgeLimits(draft)
+          .then((saved) => {
+            applyAgeLimits(saved)
+            syncAgeDraftFromLive()
+            ageMessage =
+              'Age limits saved per sport. Registration form validates ages using each sport’s min/max.'
+            ageError = ''
+          })
+          .catch((error) => {
+            ageError =
+              error instanceof Error ? error.message : 'Could not save age limits'
+            ageMessage = ''
+          })
+          .finally(() => {
+            ageSaving = false
+            renderAdmin(root)
+          })
       } else if (action === 'bulk-delete') {
         if (!selectedKeys.size || tableBusy) return
         const keys = [...selectedKeys]
@@ -1027,12 +1208,20 @@ export function renderAdmin(root: HTMLElement): void {
             ...s,
             format,
             player1Name: String(data.get('player1Name') || '').trim(),
-            player1Mobile: normalizeMobile(
+            player1Mobile: sanitizeMobileInput(
               String(data.get('player1Mobile') || ''),
             ),
+            player1Age: parseAge(
+              String(data.get('player1Age') || ''),
+              (sportIdRaw || undefined) as SportId | undefined,
+            ),
             player2Name: String(data.get('player2Name') || '').trim(),
-            player2Mobile: normalizeMobile(
+            player2Mobile: sanitizeMobileInput(
               String(data.get('player2Mobile') || ''),
+            ),
+            player2Age: parseAge(
+              String(data.get('player2Age') || ''),
+              (sportIdRaw || undefined) as SportId | undefined,
             ),
           }
           return updated
@@ -1044,6 +1233,8 @@ export function renderAdmin(root: HTMLElement): void {
         renderAdmin(root)
         return
       }
+
+      next.mobile = sanitizeMobileInput(next.mobile)
 
       tableBusy = true
       tableError = ''
