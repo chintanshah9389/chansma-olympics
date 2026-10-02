@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:live": "vite",
+    "dev:live": "vite --mode live",
     "dev:client": "vite",
     "dev:server": "node --watch server/index.js",
     "build": "tsc && vite build",
@@ -19,6 +19,9 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "html2canvas": "^1.4.1",
+    "html2canvas-pro": "^2.5.0",
+    "jspdf": "^4.2.1",
     "pg": "^8.13.3",
     "ws": "^8.18.1"
   },

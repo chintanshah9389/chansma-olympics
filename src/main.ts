@@ -4,7 +4,6 @@ import {
   countSportRegistrations,
   seatWeight,
   countWaitingRegistrations,
-  createId,
   describePlayerMobileConflict,
   describeSportConflict,
   getStorageError,
@@ -13,11 +12,34 @@ import {
   parseAge,
   normalizeMobile,
   sanitizeMobileInput,
+  describeCricketConflict,
   refreshAgeLimits,
   refreshCapacities,
+  refreshCricketCapacities,
+  refreshFees,
   refreshRegistrations,
-  saveRegistration,
+  getRegistrations,
+  saveCheckout,
+  setActiveEvent,
 } from './storage'
+import { eventById, getCricketCapacities } from './events'
+import {
+  BANK,
+  CASH_COLLECTORS,
+  QR_LIMIT,
+  UPI_ID,
+  getFee,
+} from './fees'
+import {
+  PLAYER_AREAS,
+  PLAYER_SKILLS,
+  ageFromBirthDate,
+  emptyCricketPlayer,
+  optimizePhoto,
+  type CricketField,
+  type CricketPlayer,
+  type PlayerSkill,
+} from './cricketForm'
 import { getSportAgeLimit } from './ageLimits'
 import {
   PRIMARY_SPORTS,
@@ -39,8 +61,9 @@ import {
   iconAdmin,
   iconArrowLeft,
   iconArrowRight,
+  iconCamera,
+  iconCricket,
   iconCheck,
-  iconCopy,
   iconDouble,
   iconFemale,
   iconLive,
@@ -58,9 +81,9 @@ import type {
   FormState,
   Gender,
   PlayFormat,
+  Registration,
   SelectedSport,
   SportId,
-  WizardStep,
 } from './types'
 
 const STEP_LABELS = [
@@ -95,7 +118,44 @@ const state: FormState = {
   doublesPlayers: {},
 }
 
-let step: WizardStep = 1
+type CricketKind = 'turf' | 'overarm'
+
+type FlowPhase =
+  | { id: 'begin' }
+  | { id: 'cricket-gender' }
+  | { id: 'cricket-choice' }
+  | { id: 'cricket-form' }
+  | { id: 'indoor'; indoorStep: 1 | 2 | 3 | 4 }
+  | { id: 'review' }
+  | { id: 'pay' }
+  | { id: 'done' }
+
+let phaseIndex = 0
+let pickIndoor = false
+let pickCricket = false
+let pickTurf = false
+let pickOverarm = false
+let cricketGender: Gender | null = null
+let cricketEntry: CricketPlayer = emptyCricketPlayer()
+const cricketSkills: Record<CricketKind, PlayerSkill | ''> = {
+  turf: '',
+  overarm: '',
+}
+let cricketErrors: Partial<Record<CricketField, string>> = {}
+const skillErrors: Partial<Record<CricketKind, string>> = {}
+let beginError = ''
+let cricketChoiceError = ''
+let cricketGenderError = ''
+let photoBusy = false
+let payMode: 'online' | 'cash' | null = null
+let cashCollector = ''
+let paymentShot = ''
+let paymentShotName = ''
+let payError = ''
+let receiptNo = ''
+let submitBusy = false
+let frozenBill: { label: string; amount: number }[] | null = null
+let receiptCricketStatus: Partial<Record<'turf' | 'overarm', 'confirmed' | 'waiting'>> = {}
 let detailErrors: Partial<Record<'fullName' | 'mobile', string>> = {}
 let sportError = ''
 let formatError = ''
@@ -113,7 +173,7 @@ let submitError = ''
 let lastReference = ''
 let lastRegisteredSports: SelectedSport[] = []
 /** Last step painted — used to skip re-animating when only errors update */
-let paintedStep: WizardStep | null = null
+let paintedKey = ''
 /** Slide direction for step transitions */
 let stepAnimDir: 'forward' | 'back' = 'forward'
 /** Avoid blur→re-render stealing the Continue / Submit tap on mobile */
@@ -135,48 +195,6 @@ function selectedSportsList(): SportId[] {
 /** Format-choice sports + football / carrom / chess player details */
 function sportsNeedingPlayerDetails(): SportId[] {
   return selectedSportsList().filter(needsPlayerDetails)
-}
-
-function playerLine(name?: string, mobile?: string, age?: number): string {
-  const bits: string[] = []
-  if (name) bits.push(name)
-  if (mobile) bits.push(mobile)
-  if (age != null) bits.push(`Age ${age}`)
-  return bits.join(' · ')
-}
-
-function formatLabel(sport: SelectedSport): string {
-  const waitTag = sport.status === 'waiting' ? ' · Waiting list' : ''
-  const player = playerLine(
-    sport.player1Name,
-    sport.player1Mobile,
-    sport.player1Age,
-  )
-
-  if (sport.sportId === 'football') {
-    return player ? `Team — ${player}${waitTag}` : `Team sport${waitTag}`
-  }
-  if (!needsFormat(sport.sportId)) {
-    return player ? `Singles — ${player}${waitTag}` : `Singles only${waitTag}`
-  }
-  if (sport.format === 'double') {
-    if (sport.player1Name && sport.player2Name) {
-      const p1 = playerLine(
-        sport.player1Name,
-        sport.player1Mobile,
-        sport.player1Age,
-      )
-      const p2 = playerLine(
-        sport.player2Name,
-        sport.player2Mobile,
-        sport.player2Age,
-      )
-      return `Doubles — P1: ${p1} | P2: ${p2}${waitTag}`
-    }
-    return `Doubles${waitTag}`
-  }
-  if (player) return `Singles — ${player}${waitTag}`
-  return `Singles${waitTag}`
 }
 
 function bilingualMobileError(raw: string, required = true): string | null {
@@ -307,22 +325,90 @@ function genderSlotCopy(
   }
 }
 
+function countCricketSeats(
+  kind: 'turf' | 'overarm',
+  gender: Gender,
+  status: 'confirmed' | 'waiting',
+): number {
+  return getRegistrations().reduce((count, reg) => {
+    if (reg.event !== kind || reg.gender !== gender) return count
+    const seat = reg.sports[0]?.status === 'waiting' ? 'waiting' : 'confirmed'
+    return seat === status ? count + 1 : count
+  }, 0)
+}
+
+function cricketSlotCopy(
+  kind: 'turf' | 'overarm',
+  gender: Gender,
+): { en: string; gu: string; left: number } {
+  const caps = getCricketCapacities()
+  const total = kind === 'overarm' ? caps.overarm.male : caps.turf[gender]
+  const used = countCricketSeats(kind, gender, 'confirmed')
+  const waiting = countCricketSeats(kind, gender, 'waiting')
+  const left = Math.max(0, total - used)
+  const categoryEn = gender === 'male' ? 'Men' : 'Women'
+  const categoryGu = gender === 'male' ? GU.men : GU.women
+  if (left <= 0) {
+    return {
+      en: `${categoryEn}: Full · Waiting (${waiting} · ${used}/${total})`,
+      gu: `${categoryGu}: ${GU.fullWaiting} (${waiting} · ${used}/${total})`,
+      left: 0,
+    }
+  }
+  const waitNoteEn = waiting > 0 ? ` · ${waiting} waiting` : ''
+  const waitNoteGu = waiting > 0 ? ` · ${waiting} વેઇટિંગ` : ''
+  return {
+    en: `${categoryEn}: ${left} left (${used}/${total})${waitNoteEn}`,
+    gu: `${categoryGu}: ${left} ${GU.left} (${used}/${total})${waitNoteGu}`,
+    left,
+  }
+}
+
+function namedCricketSlot(kind: 'turf' | 'overarm', gender: Gender): string {
+  const name = kind === 'turf' ? bi('Turf', 'ટર્ફ') : bi('Overarm', 'ઓવરઆર્મ')
+  return `<div class="slot-named"><span class="slot-name">${name}</span>${cricketSlotHtml(kind, gender)}</div>`
+}
+
+function cricketSlotHtml(kind: 'turf' | 'overarm', gender: Gender): string {
+  const copy = cricketSlotCopy(kind, gender)
+  const cls = copy.left <= 0 ? 'is-full' : copy.left <= 3 ? 'is-low' : ''
+  return `<span class="slot-live ${cls}" data-cricket-slot="${kind}-${gender}"><span class="slot-pulse"></span>${iconLive()} ${bi(copy.en, copy.gu)}</span>`
+}
+
+function updateCricketSlotBadges(): void {
+  app.querySelectorAll<HTMLElement>('[data-cricket-slot]').forEach((el) => {
+    const [kind, gender] = (el.dataset.cricketSlot ?? '').split('-')
+    if (kind !== 'turf' && kind !== 'overarm') return
+    if (gender !== 'male' && gender !== 'female') return
+    if (kind === 'overarm' && gender === 'female') return
+    const copy = cricketSlotCopy(kind, gender)
+    el.classList.toggle('is-full', copy.left <= 0)
+    el.classList.toggle('is-low', copy.left > 0 && copy.left <= 3)
+    el.innerHTML = `<span class="slot-pulse"></span>${iconLive()} ${bi(copy.en, copy.gu)}`
+  })
+}
+
+function slotBadgeFor(sportId: SportId, gender: Gender): string {
+  const copy = genderSlotCopy(sportId, gender)
+  const cls = copy.left <= 0 ? 'is-full' : copy.left <= 3 ? 'is-low' : ''
+  return `<span class="slot-live ${cls}" data-slot-sport="${sportId}" data-slot-gender="${gender}"><span class="slot-pulse"></span>${iconLive()} ${bi(copy.en, copy.gu)}</span>`
+}
+
 function slotBadgeHtml(sportId: SportId): string {
   if (!state.gender) {
     return `<span class="slot-live" data-slot-sport="${sportId}">—</span>`
   }
-  const copy = genderSlotCopy(sportId, state.gender)
-  const cls =
-    copy.left <= 0 ? 'is-full' : copy.left <= 3 ? 'is-low' : ''
-  return `<span class="slot-live ${cls}" data-slot-sport="${sportId}"><span class="slot-pulse"></span>${iconLive()} ${bi(copy.en, copy.gu)}</span>`
+  return slotBadgeFor(sportId, state.gender)
 }
 
 function updateLiveSlotBadges(): void {
-  if (step < 2 || step > 4 || !state.gender) return
+  updateCricketSlotBadges()
   app.querySelectorAll<HTMLElement>('[data-slot-sport]').forEach((el) => {
     const id = el.dataset.slotSport as SportId
     if (!id) return
-    const copy = genderSlotCopy(id, state.gender!)
+    const gender = (el.dataset.slotGender as Gender | undefined) || state.gender
+    if (!gender) return
+    const copy = genderSlotCopy(id, gender)
     if (el.classList.contains('choice-meta') || el.classList.contains('badge')) {
       el.innerHTML = bi(copy.en, copy.gu)
       el.classList.toggle('warn', copy.left <= 0)
@@ -331,13 +417,66 @@ function updateLiveSlotBadges(): void {
       return
     }
     const next = document.createElement('div')
-    next.innerHTML = slotBadgeHtml(id)
+    next.innerHTML = slotBadgeFor(id, gender)
     const badge = next.firstElementChild as HTMLElement | null
     if (!badge) return
     badge.classList.add('is-updating')
     el.replaceWith(badge)
     window.setTimeout(() => badge.classList.remove('is-updating'), 600)
   })
+}
+
+function anySeatWaiting(): boolean {
+  const indoorWaiting =
+    pickIndoor && buildSelectedSports().some((sport) => sport.status === 'waiting')
+  const turfWaiting = pickTurf && cricketStatus('turf') === 'waiting'
+  const overarmWaiting = pickOverarm && cricketStatus('overarm') === 'waiting'
+  return Boolean(indoorWaiting || turfWaiting || overarmWaiting)
+}
+
+function seatSnapshot(): string {
+  const indoor = pickIndoor
+    ? buildSelectedSports()
+        .map((sport) => `${sport.sportId}:${sport.status}`)
+        .join(',')
+    : ''
+  const turf = pickTurf ? cricketStatus('turf') : ''
+  const overarm = pickOverarm ? cricketStatus('overarm') : ''
+  return `${indoor}|${turf}|${overarm}`
+}
+
+let lastSeatSnapshot = ''
+let seatWatchTimer = 0
+
+function syncLiveSeats(): void {
+  if (isAdminRoute()) return
+  const phase = currentPhase()
+  if (phase.id === 'review' || phase.id === 'pay') {
+    const next = seatSnapshot()
+    if (next !== lastSeatSnapshot) {
+      lastSeatSnapshot = next
+      render()
+      return
+    }
+  }
+  updateLiveSlotBadges()
+}
+
+function watchSeats(): void {
+  window.clearInterval(seatWatchTimer)
+  seatWatchTimer = 0
+  const phase = currentPhase()
+  if (phase.id !== 'review' && phase.id !== 'pay') return
+  lastSeatSnapshot = seatSnapshot()
+  seatWatchTimer = window.setInterval(() => {
+    const now = currentPhase()
+    if (now.id !== 'review' && now.id !== 'pay') {
+      window.clearInterval(seatWatchTimer)
+      seatWatchTimer = 0
+      return
+    }
+    void refreshRegistrations().then(() => syncLiveSeats())
+  }, 4000)
 }
 
 function startLiveSlotUpdates(): void {
@@ -555,20 +694,212 @@ function canSubmit(): { ok: boolean; message: string } {
   return { ok: true, message: '' }
 }
 
+function phases(): FlowPhase[] {
+  const list: FlowPhase[] = [{ id: 'begin' }]
+  if (pickIndoor) {
+    list.push({ id: 'indoor', indoorStep: 1 })
+    list.push({ id: 'indoor', indoorStep: 2 })
+    const sportsChosen = selectedSportsList().length > 0
+    const needDetails =
+      !sportsChosen || sportsNeedingPlayerDetails().length > 0
+    if (needDetails) list.push({ id: 'indoor', indoorStep: 3 })
+  }
+  if (pickCricket) {
+    list.push({ id: 'cricket-gender' })
+    if (cricketGender) {
+      list.push({ id: 'cricket-choice' })
+      if (pickTurf || pickOverarm) list.push({ id: 'cricket-form' })
+    }
+  }
+  if (pickIndoor || pickCricket) {
+    list.push({ id: 'review' })
+    list.push({ id: 'pay' })
+  }
+  list.push({ id: 'done' })
+  return list
+}
+
+function phaseKey(phase: FlowPhase): string {
+  return phase.id === 'indoor' ? `indoor-${phase.indoorStep}` : phase.id
+}
+
+function currentPhase(): FlowPhase {
+  const list = phases()
+  return list[Math.min(phaseIndex, list.length - 1)] ?? { id: 'begin' }
+}
+
+function movePhase(direction: 1 | -1): void {
+  const list = phases()
+  const key = phaseKey(currentPhase())
+  const index = list.findIndex((phase) => phaseKey(phase) === key)
+  const next = Math.min(list.length - 1, Math.max(0, index + direction))
+  phaseIndex = next
+  stepAnimDir = direction === 1 ? 'forward' : 'back'
+  render()
+}
+
+function validateBegin(): boolean {
+  if (!pickIndoor && !pickCricket) {
+    beginError = biText(
+      'Select Indoor, Cricket, or both.',
+      'ઇન્ડોર, ક્રિકેટ, અથવા બંને પસંદ કરો.',
+    )
+    return false
+  }
+  beginError = ''
+  return true
+}
+
+function validateCricketGender(): boolean {
+  if (!cricketGender) {
+    cricketGenderError = biText('Select Male or Female.', 'પુરુષ અથવા સ્ત્રી પસંદ કરો.')
+    return false
+  }
+  cricketGenderError = ''
+  return true
+}
+
+function validateCricketChoice(): boolean {
+  if (!pickTurf && !pickOverarm) {
+    cricketChoiceError = biText(
+      'Select Turf, Overarm, or both.',
+      'ટર્ફ, ઓવરઆર્મ, અથવા બંને પસંદ કરો.',
+    )
+    return false
+  }
+  cricketChoiceError = ''
+  return true
+}
+
+function cricketAgeBounds(): { minAge: number; maxAge: number } {
+  const parts = []
+  if (pickTurf) parts.push(getSportAgeLimit('turf'))
+  if (pickOverarm) parts.push(getSportAgeLimit('overarm'))
+  if (parts.length === 0) return { minAge: 5, maxAge: 100 }
+  return {
+    minAge: Math.max(...parts.map((part) => part.minAge)),
+    maxAge: Math.min(...parts.map((part) => part.maxAge)),
+  }
+}
+
+function validateCricket(): boolean {
+  const player = cricketEntry
+  const errors: Partial<Record<CricketField, string>> = {}
+  const required = [
+    ['firstName', "Player's first name is required", 'ખેલાડીનું પ્રથમ નામ જરૂરી છે'],
+    ['fatherName', 'Father/Spouse name is required', 'પિતા/પતિ-પત્નીનું નામ જરૂરી છે'],
+    ['grandfatherName', 'Grandfather name is required', 'દાદાનું નામ જરૂરી છે'],
+    ['surname', 'Surname is required', 'અટક જરૂરી છે'],
+  ] as const
+  for (const [field, en, gu] of required) {
+    if (!player[field].trim()) errors[field] = biText(en, gu)
+  }
+  const mobileError = mobileFieldError(player.mobile, { required: true })
+  if (mobileError) errors.mobile = mobileError
+  const bounds = cricketAgeBounds()
+  const ageError =
+    bounds.minAge > bounds.maxAge
+      ? biText(
+          'Turf and overarm age limits do not overlap. Ask the organiser.',
+          'ટર્ફ અને ઓવરઆર્મની ઉંમર મર્યાદા મેળ ખાતી નથી. આયોજકને પૂછો.',
+        )
+      : ageFieldError(player.age, {
+          required: true,
+          sportId: pickTurf ? 'turf' : 'overarm',
+        })
+  if (!ageError && bounds.minAge <= bounds.maxAge) {
+    const age = Number(String(player.age).trim())
+    if (age < bounds.minAge || age > bounds.maxAge) {
+      errors.age = biText(
+        `Enter an age between ${bounds.minAge} and ${bounds.maxAge}`,
+        `ઉંમર ${bounds.minAge} થી ${bounds.maxAge} વચ્ચે હોવી જોઈએ`,
+      )
+    }
+  } else if (ageError) errors.age = ageError
+  const skillMessage = biText('Select a player skill', 'ખેલાડીની કુશળતા પસંદ કરો')
+  if (pickTurf && !cricketSkills.turf) skillErrors.turf = skillMessage
+  else delete skillErrors.turf
+  if (pickOverarm && !cricketSkills.overarm) skillErrors.overarm = skillMessage
+  else delete skillErrors.overarm
+  if (!player.birthDate) {
+    errors.birthDate = biText('Birth date is required', 'જન્મ તારીખ જરૂરી છે')
+  } else if (ageFromBirthDate(player.birthDate) == null) {
+    errors.birthDate = biText('Enter a valid birth date', 'માન્ય જન્મ તારીખ દાખલ કરો')
+  }
+  if (!player.area) {
+    errors.area = biText("Select the player's area", 'ખેલાડીનો વિસ્તાર પસંદ કરો')
+  }
+  if (pickTurf) {
+    const clash = describeCricketConflict('turf', player.mobile)
+    if (clash) errors.mobile = clash
+  }
+  if (!errors.mobile && pickOverarm) {
+    const clash = describeCricketConflict('overarm', player.mobile)
+    if (clash) errors.mobile = clash
+  }
+  if (photoBusy) {
+    errors.photo = biText('Wait until the photo is ready.', 'ફોટો તૈયાર થાય ત્યાં સુધી રાહ જુઓ.')
+  } else if (!player.photoUrl) {
+    errors.photo = biText("Player's photo is required", 'ખેલાડીનો ફોટો જરૂરી છે')
+  }
+  cricketErrors = errors
+  return Object.keys(errors).length === 0 && Object.keys(skillErrors).length === 0
+}
+
 function goNext(): void {
-  if (step === 1) {
+  const phase = currentPhase()
+
+  if (phase.id === 'begin') {
+    if (!validateBegin()) {
+      shouldRevealErrors = true
+      render()
+      return
+    }
+    movePhase(1)
+    return
+  }
+
+  if (phase.id === 'cricket-choice') {
+    if (!validateCricketChoice()) {
+      shouldRevealErrors = true
+      render()
+      return
+    }
+    movePhase(1)
+    return
+  }
+
+  if (phase.id === 'cricket-gender') {
+    if (!validateCricketGender()) {
+      shouldRevealErrors = true
+      render()
+      return
+    }
+    movePhase(1)
+    return
+  }
+
+  if (phase.id === 'cricket-form') {
+    if (!validateCricket()) {
+      shouldRevealErrors = true
+      render()
+      return
+    }
+    movePhase(1)
+    return
+  }
+
+  if (phase.id === 'indoor' && phase.indoorStep === 1) {
     if (!validateDetails()) {
       shouldRevealErrors = true
       render()
       return
     }
-    stepAnimDir = 'forward'
-    step = 2
-    render()
+    movePhase(1)
     return
   }
 
-  if (step === 2) {
+  if (phase.id === 'indoor' && phase.indoorStep === 2) {
     if (!validateSports()) {
       shouldRevealErrors = true
       render()
@@ -586,30 +917,52 @@ function goNext(): void {
         state.formats[id] = 'single'
       }
     }
-    stepAnimDir = 'forward'
-    step = needing.length > 0 ? 3 : 4
-    render()
+    movePhase(1)
     return
   }
 
-  if (step === 3) {
+  if (phase.id === 'indoor' && phase.indoorStep === 3) {
     if (!validateFormats()) {
       shouldRevealErrors = true
       render()
       return
     }
-    stepAnimDir = 'forward'
-    step = 4
-    render()
+    movePhase(1)
+    return
   }
+
+  if (phase.id === 'review') {
+    if (pickIndoor) {
+      const check = canSubmit()
+      if (!check.ok) {
+        redirectToSubmitError(check.message)
+        return
+      }
+    }
+    movePhase(1)
+  }
+}
+
+function gotoReview(): void {
+  const list = phases()
+  const index = list.findIndex((phase) => phase.id === 'review')
+  if (index >= 0) phaseIndex = index
+}
+
+function gotoIndoor(indoorStep: 1 | 2 | 3 | 4): void {
+  const list = phases()
+  const index = list.findIndex(
+    (phase) => phase.id === 'indoor' && phase.indoorStep === indoorStep,
+  )
+  if (index >= 0) phaseIndex = index
 }
 
 function redirectToSubmitError(message: string): void {
   if (!state.gender) {
     stepAnimDir = 'back'
-    step = 2
     sportError = message
     submitError = ''
+    gotoIndoor(2)
     shouldRevealErrors = true
     render()
     return
@@ -617,6 +970,7 @@ function redirectToSubmitError(message: string): void {
 
   const sports = buildSelectedSports()
   for (const s of sports) {
+    if (s.sportId === 'turf' || s.sportId === 'overarm') continue
     const conflict = describeSportConflict(
       s,
       sportLabel(s.sportId),
@@ -626,7 +980,7 @@ function redirectToSubmitError(message: string): void {
 
     if (sportsNeedingPlayerDetails().includes(s.sportId)) {
       stepAnimDir = 'back'
-      step = 3
+      gotoIndoor(3)
       doublesErrors[s.sportId] = {
         ...doublesErrors[s.sportId],
         player1: {
@@ -637,7 +991,7 @@ function redirectToSubmitError(message: string): void {
       formatError = conflict
       submitError = ''
     } else {
-      step = 4
+      gotoReview()
       submitError = conflict
     }
     shouldRevealErrors = true
@@ -651,16 +1005,15 @@ function redirectToSubmitError(message: string): void {
 }
 
 function goBack(): void {
-  if (step === 2) step = 1
-  else if (step === 3) step = 2
-  else if (step === 4) step = sportsNeedingPlayerDetails().length > 0 ? 3 : 2
-
-  stepAnimDir = 'back'
+  if (phaseKey(currentPhase()) === 'begin') return
   sportError = ''
   formatError = ''
   doublesErrors = {}
   submitError = ''
-  render()
+  beginError = ''
+  cricketChoiceError = ''
+  cricketGenderError = ''
+  movePhase(-1)
 }
 
 function primarySportsForGender(): SportId[] {
@@ -739,46 +1092,177 @@ function setFormat(id: SportId, format: PlayFormat): void {
   render()
 }
 
-async function submit(): Promise<void> {
-  const check = canSubmit()
-  if (!check.ok) {
-    redirectToSubmitError(check.message)
-    return
+function validatePayment(): boolean {
+  payError = ''
+  if (pickIndoor) {
+    const check = canSubmit()
+    if (!check.ok) {
+      payError = check.message
+      return false
+    }
   }
+  if (payMode !== 'online' && payMode !== 'cash') {
+    payError = biText(
+      'Choose online payment or cash.',
+      'ઓનલાઇન ચુકવણી અથવા રોકડ પસંદ કરો.',
+    )
+    return false
+  }
+  if (payMode === 'online' && !paymentShot) {
+    payError = biText(
+      'After you pay, upload a screenshot.',
+      'ચુકવણી પછી સ્ક્રીનશૉટ અપલોડ કરો.',
+    )
+    return false
+  }
+  if (payMode === 'cash' && !cashCollector) {
+    payError = biText(
+      'Select the person you gave the amount to.',
+      'જેને રકમ આપી તે વ્યક્તિ પસંદ કરો.',
+    )
+    return false
+  }
+  return true
+}
 
-  try {
-    const reference = createId()
-    const sports = buildSelectedSports()
-    await saveRegistration({
-      id: reference,
-      fullName: state.fullName.trim(),
-      mobile: normalizeMobile(state.mobile),
-      location: state.location.trim(),
-      gender: state.gender!,
-      sports,
-      createdAt: new Date().toISOString(),
-    })
-    lastReference = reference
-    lastRegisteredSports = sports
-    stepAnimDir = 'forward'
-    step = 5
-    render()
-  } catch (error) {
-    submitError =
-      error instanceof Error
-        ? error.message.includes(' / ')
-          ? error.message
-          : biText(error.message, GU.errSaveFailed)
-        : biText(
-            'Could not save registration. Check API / database connection.',
-            GU.errSaveFailed,
-          )
-    shouldRevealErrors = true
-    render()
+function makeReceiptNo(): string {
+  const now = new Date()
+  const y = String(now.getFullYear()).slice(2)
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const n = Math.floor(1000 + Math.random() * 9000)
+  return `CHO-${y}${m}${d}-${n}`
+}
+
+function cricketRegistration(
+  kind: 'turf' | 'overarm',
+  id: string,
+  createdAt: string,
+  receipt: string,
+): Registration {
+  const player = cricketEntry
+  const name = [player.firstName, player.fatherName, player.grandfatherName, player.surname]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ')
+  const gender = kind === 'overarm' || cricketGender !== 'female' ? 'male' : 'female'
+  return {
+    id,
+    event: kind,
+    fullName: name,
+    mobile: normalizeMobile(player.mobile),
+    location: player.area.trim(),
+    gender,
+    createdAt,
+    receiptNo: receipt,
+    payMode: payMode || '',
+    paidTo: payMode === 'cash' ? cashCollector : 'Online',
+    amount: getFee(kind),
+    sports: [
+      {
+        sportId: kind,
+        format: 'single',
+        status: cricketStatus(kind),
+        player1Name: name,
+        player1Mobile: normalizeMobile(player.mobile),
+        player1Age: Number(player.age),
+        skill: cricketSkills[kind],
+        birthDate: player.birthDate,
+        fatherName: player.fatherName.trim(),
+        grandfatherName: player.grandfatherName.trim(),
+        surname: player.surname.trim(),
+        photoUrl: player.photoUrl,
+      },
+    ],
   }
 }
 
-function resetForm(): void {
+function submit(): void {
+  if (submitBusy || currentPhase().id !== 'pay') return
+  if (!validatePayment()) {
+    shouldRevealErrors = true
+    render()
+    return
+  }
+  if ((pickTurf || pickOverarm) && !validateCricket()) {
+    payError = biText('Cricket details are incomplete.', 'ક્રિકેટ વિગતો અધૂરી છે.')
+    shouldRevealErrors = true
+    render()
+    return
+  }
+
+  const receipt = makeReceiptNo()
+  const createdAt = new Date().toISOString()
+  const paidTo = payMode === 'cash' ? cashCollector : 'Online'
+  const batch: Registration[] = []
+  if (pickIndoor && state.gender) {
+    const sports = buildSelectedSports()
+    const amount = sports.reduce((sum, sport) => {
+      if (sport.sportId === 'turf' || sport.sportId === 'overarm') return sum
+      return sum + getFee(sport.sportId) * seatWeight(sport.format)
+    }, 0)
+    batch.push({
+      id: `${receipt}-IN`,
+      event: 'indoor',
+      fullName: state.fullName.trim(),
+      mobile: normalizeMobile(state.mobile),
+      location: state.location.trim(),
+      gender: state.gender,
+      sports,
+      createdAt,
+      receiptNo: receipt,
+      payMode: payMode || '',
+      paidTo,
+      amount,
+    })
+  }
+  if (pickTurf) batch.push(cricketRegistration('turf', `${receipt}-TF`, createdAt, receipt))
+  if (pickOverarm) batch.push(cricketRegistration('overarm', `${receipt}-OA`, createdAt, receipt))
+  if (batch.length === 0) {
+    payError = biText('Nothing to save.', 'સાચવવા માટે કંઈ નથી.')
+    render()
+    return
+  }
+
+  submitBusy = true
+  payError = ''
+  render()
+  void saveCheckout(batch, payMode === 'online' ? paymentShot : '')
+    .then((saved) => {
+      const indoor = saved.find((row) => row.event === 'indoor')
+      lastRegisteredSports = indoor?.sports ?? []
+      receiptCricketStatus = {}
+      for (const kind of ['turf', 'overarm'] as const) {
+        const status = saved.find((row) => row.event === kind)?.sports[0]?.status
+        if (status === 'confirmed' || status === 'waiting') {
+          receiptCricketStatus[kind] = status
+        }
+      }
+      frozenBill = feeLines(lastRegisteredSports)
+      receiptNo = receipt
+      const storedPhoto = saved.find((row) => row.event === 'turf' || row.event === 'overarm')
+        ?.sports[0]?.photoUrl
+      if (storedPhoto) cricketEntry.photoUrl = storedPhoto
+      const storedShot = saved.find((row) => row.paymentShotUrl)?.paymentShotUrl
+      if (storedShot) paymentShot = storedShot
+      const list = phases()
+      const done = list.findIndex((phase) => phase.id === 'done')
+      phaseIndex = done >= 0 ? done : list.length - 1
+      stepAnimDir = 'forward'
+    })
+    .catch((error: unknown) => {
+      payError =
+        error instanceof Error
+          ? error.message
+          : biText('Could not save this registration.', 'આ નોંધણી સાચવી શકાઈ નહીં.')
+    })
+    .finally(() => {
+      submitBusy = false
+      render()
+    })
+}
+
+function clearFormFields(): void {
   state.fullName = ''
   state.mobile = ''
   state.location = ''
@@ -794,18 +1278,81 @@ function resetForm(): void {
   submitError = ''
   lastReference = ''
   lastRegisteredSports = []
+  phaseIndex = 0
+  pickIndoor = false
+  pickCricket = false
+  pickTurf = false
+  pickOverarm = false
+  cricketGender = null
+  cricketEntry = emptyCricketPlayer()
+  cricketSkills.turf = ''
+  cricketSkills.overarm = ''
+  beginError = ''
+  cricketChoiceError = ''
+  cricketGenderError = ''
+  cricketErrors = {}
+  delete skillErrors.turf
+  delete skillErrors.overarm
+  photoBusy = false
+  payMode = null
+  cashCollector = ''
+  paymentShot = ''
+  paymentShotName = ''
+  payError = ''
+  receiptNo = ''
+  submitBusy = false
+  frozenBill = null
+  receiptCricketStatus = {}
+  paintedKey = ''
+}
+
+function resetForm(): void {
+  clearFormFields()
   stepAnimDir = 'forward'
-  step = 1
   render()
 }
 
+function brandSubHtml(): string {
+  const phase = currentPhase()
+  if (phase.id === 'cricket-gender' || phase.id === 'cricket-choice') return 'Cricket sports'
+  if (phase.id === 'cricket-form') {
+    if (pickTurf && !pickOverarm) {
+      const event = eventById('turf')
+      return `${bi(event.title, event.titleGu)} · ${bi(event.date, event.dateGu)}`
+    }
+    if (pickOverarm && !pickTurf) {
+      const event = eventById('overarm')
+      return `${bi(event.title, event.titleGu)} · ${bi(event.date, event.dateGu)}`
+    }
+    return 'Cricket sports'
+  }
+  if (phase.id === 'indoor') {
+    if (phase.indoorStep === 1) return ''
+    const event = eventById('indoor')
+    return `${bi(event.title, event.titleGu)} · ${bi(event.date, event.dateGu)}`
+  }
+  return bi('Tournament Registration', GU.brandSub)
+}
+
 function stepHasErrors(): boolean {
-  if (step === 1) return Boolean(detailErrors.fullName || detailErrors.mobile)
-  if (step === 2) return Boolean(sportError)
-  if (step === 3) {
+  const phase = currentPhase()
+  if (phase.id === 'begin') return Boolean(beginError)
+  if (phase.id === 'cricket-gender') return Boolean(cricketGenderError)
+  if (phase.id === 'cricket-choice') return Boolean(cricketChoiceError)
+  if (phase.id === 'cricket-form') {
+    return Object.keys(cricketErrors).length > 0 || Object.keys(skillErrors).length > 0
+  }
+  if (phase.id === 'indoor' && phase.indoorStep === 1) {
+    return Boolean(detailErrors.fullName || detailErrors.mobile)
+  }
+  if (phase.id === 'indoor' && phase.indoorStep === 2) return Boolean(sportError)
+  if (phase.id === 'indoor' && phase.indoorStep === 3) {
     return Boolean(formatError) || Object.keys(doublesErrors).length > 0
   }
-  if (step === 4) return Boolean(submitError)
+  if (phase.id === 'pay') return Boolean(payError)
+  if (phase.id === 'review' || (phase.id === 'indoor' && phase.indoorStep === 4)) {
+    return Boolean(submitError)
+  }
   return false
 }
 
@@ -836,32 +1383,87 @@ function revealFormErrors(): void {
   })
 }
 
-function progressIndex(): number {
-  if (step === 5) return 4
-  if (step === 4) return 3
-  if (step === 3) return 2
-  return step - 1
+function phaseGroup(
+  phase: FlowPhase,
+): 'outdoor' | 'indoor' | 'review' | 'pay' | 'receipt' {
+  if (phase.id === 'done') return 'receipt'
+  if (phase.id === 'pay') return 'pay'
+  if (phase.id === 'review') return 'review'
+  return phase.id === 'indoor' ? 'indoor' : 'outdoor'
+}
+
+function phaseLabel(phase: FlowPhase): { en: string; gu: string } {
+  if (phase.id === 'begin') return { en: 'Begin', gu: 'શરૂ' }
+  if (phase.id === 'cricket-gender') return { en: 'Gender', gu: 'લિંગ' }
+  if (phase.id === 'cricket-choice') return { en: 'Cricket', gu: 'ક્રિકેટ' }
+  if (phase.id === 'cricket-form') return { en: 'Player', gu: 'ખેલાડી' }
+  if (phase.id === 'review') return STEP_LABELS[3]
+  if (phase.id === 'pay') return { en: 'Pay', gu: 'ચુકવણી' }
+  if (phase.id === 'done') return { en: 'Receipt', gu: 'રસીદ' }
+  if (phase.id === 'indoor' && phase.indoorStep === 1) return STEP_LABELS[0]
+  if (phase.id === 'indoor' && phase.indoorStep === 2) return STEP_LABELS[1]
+  if (phase.id === 'indoor' && phase.indoorStep === 3) return STEP_LABELS[2]
+  return STEP_LABELS[3]
 }
 
 function renderProgress(): string {
-  const active = progressIndex()
+  const track = phases().filter((phase) => phase.id !== 'begin')
+  const activeKey = phaseKey(currentPhase())
+  const active = Math.max(
+    0,
+    track.findIndex((phase) => phaseKey(phase) === activeKey),
+  )
   const showError = stepHasErrors()
+  const wide = track.length >= 6 ? ' is-many' : ''
+  const bands: string[] = []
+  let bandStart = 1
+  for (let i = 0; i < track.length; i++) {
+    const group = phaseGroup(track[i])
+    const next = i + 1 < track.length ? phaseGroup(track[i + 1]) : null
+    if (group === next) continue
+    const label =
+      group === 'outdoor'
+        ? 'Outdoor'
+        : group === 'indoor'
+          ? 'Indoor'
+          :       group === 'pay'
+            ? 'Pay'
+            : group === 'receipt'
+              ? 'Receipt'
+              : 'Review'
+    const split = bands.length > 0 ? ' is-split' : ''
+    bands.push(
+      `<li class="progress-band${split}" data-group="${group}" style="grid-column: ${bandStart} / ${i + 2}">${label}</li>`,
+    )
+    bandStart = i + 2
+  }
   return `
-    <ol class="progress-track">
-      ${STEP_LABELS.map((label, i) => {
-        const stateClass =
-          i < active ? 'is-done' : i === active ? 'is-active' : 'is-todo'
-        const errorClass = i === active && showError ? ' has-error' : ''
-        return `
-        <li class="progress-item ${stateClass}${errorClass}">
+    <ol class="progress-track${wide}" style="grid-template-columns: repeat(${track.length}, minmax(0, 1fr))">
+      ${bands.join('')}
+      ${track
+        .map((phase, i) => {
+          const label = phaseLabel(phase)
+          const group = phaseGroup(phase)
+          const prev = i > 0 ? phaseGroup(track[i - 1]) : null
+          const next = i + 1 < track.length ? phaseGroup(track[i + 1]) : null
+          const stateClass =
+            i < active ? 'is-done' : i === active ? 'is-active' : 'is-todo'
+          const errorClass = i === active && showError ? ' has-error' : ''
+          const edge =
+            (group !== prev ? ' data-group-start="true"' : '') +
+            (group !== next ? ' data-group-end="true"' : '')
+          const split = prev && group !== prev ? ' is-split' : ''
+          return `
+        <li class="progress-item ${stateClass}${errorClass}${split}" data-group="${group}"${edge}>
           <div class="progress-item-top">
             <span class="progress-dot" aria-hidden="true">${i < active ? '✓' : i + 1}</span>
-            ${i < STEP_LABELS.length - 1 ? '<span class="progress-line" aria-hidden="true"><span></span></span>' : ''}
+            ${group === next ? '<span class="progress-line" aria-hidden="true"><span></span></span>' : ''}
           </div>
           <span class="progress-label">${bi(label.en, label.gu)}</span>
         </li>
       `
-      }).join('')}
+        })
+        .join('')}
     </ol>
   `
 }
@@ -902,7 +1504,6 @@ function renderStep1(): string {
     <div class="fade-step">
       <h2 class="step-title"><span class="step-title-icon">${iconUser()}</span> ${bi('Enter your details', GU.detailsTitle)}</h2>
       <p class="step-sub">${bi('Enter your full name and a 10-digit mobile number (no +91 or leading 0).', GU.detailsSub)}</p>
-
       ${apiError ? `<div class="alert is-error">${bilingualHtml(apiError)}</div>` : ''}
 
       <div class="field field-icon ${detailErrors.fullName ? 'is-invalid' : ''}">
@@ -929,6 +1530,7 @@ function renderStep1(): string {
       </div>
 
       <div class="actions">
+        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
         <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
       </div>
     </div>
@@ -944,7 +1546,6 @@ function renderStep2(): string {
     <div class="fade-step">
       <h2 class="step-title">${bi('Select sports', GU.sportsTitle)}</h2>
       <p class="step-sub">${bi('Choose Male or Female first — men’s and women’s tournaments have separate slot counts.', GU.sportsSub)}</p>
-
       ${sportError ? `<div class="alert is-error">${bilingualHtml(sportError)}</div>` : ''}
 
       <div class="section-label">${bi('Gender — choose one', GU.genderLabel)}</div>
@@ -1125,7 +1726,6 @@ function renderStep3(): string {
         ${hasFormatSports ? bi('For racket sports, also choose Single or Doubles. ', GU.formatSubRacket) : ''}
         ${category ? `${bi(`Live ${category} slot counts update instantly.`, `લાઇવ ${category === 'Male' ? GU.men : GU.women} સ્લોટ તરત અપડેટ થાય છે.`)}` : ''}
       </p>
-
       ${formatError ? `<div class="alert is-error">${bilingualHtml(formatError)}</div>` : ''}
 
       ${needing
@@ -1188,143 +1788,678 @@ function renderStep3(): string {
 
       <div class="actions">
         <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
-        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Review', GU.review))}</button>
+        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), phases()[phaseIndex + 1]?.id === 'review' ? bi('Review', GU.review) : bi('Continue', GU.continue))}</button>
       </div>
     </div>
   `
 }
 
-function reviewBadge(sport: SelectedSport): string {
-  const existing = describeSportConflict(
-    sport,
-    sportLabel(sport.sportId),
-    state.mobile,
-  )
-  if (existing) {
-    return `<span class="badge badge-warn">${bi('Already registered', GU.alreadyRegistered)}</span>`
-  }
-  if (!state.gender) {
-    return `<span class="badge badge-ok">${bi('Confirmed', GU.confirmed)}</span>`
-  }
-  const copy = genderSlotCopy(sport.sportId, state.gender)
-  if (sport.status === 'waiting' || copy.left <= 0) {
-    return `<span class="badge badge-full" data-slot-sport="${sport.sportId}">${bi(copy.en, copy.gu)}</span>`
-  }
-  return `<span class="badge badge-ok" data-slot-sport="${sport.sportId}">${bi(copy.en, copy.gu)}</span>`
-}
-
 function renderStep4(): string {
-  const sports = buildSelectedSports()
-  const check = canSubmit()
-  const category = state.gender ? genderLabel(state.gender) : '—'
-  const hasWaiting = sports.some((s) => s.status === 'waiting')
-
+  const sports = pickIndoor ? buildSelectedSports() : []
+  const check = pickIndoor ? canSubmit() : { ok: true, message: '' }
+  const hasWaiting = anySeatWaiting()
   return `
     <div class="fade-step review-step">
       <h2 class="step-title">${bi('Review & submit', GU.reviewTitle)}</h2>
-      <p class="step-sub">${bi('Confirm your details and sports. Full sports go on the waiting list.', GU.reviewSub)}</p>
-
-      <div class="summary-box">
-        <p><strong>${escapeHtml(state.fullName.trim())}</strong></p>
-        <p>${escapeHtml(normalizeMobile(state.mobile))}</p>
-        <p style="margin-top:0.55rem;opacity:0.85">${bi(`${category} tournament`, `${category === 'Male' ? GU.male : category === 'Female' ? GU.female : category} ${GU.tournament}`)}</p>
-      </div>
-
+      <p class="step-sub">${bi('Confirm every sport you selected. Full sports go on the waiting list.', GU.reviewSub)}</p>
       ${hasWaiting ? `<div class="alert" style="background:#fff8e6;border-color:rgba(212,160,23,0.35);color:#8a6a00">${bi('Some sports are full — you will be added to the waiting list for those.', GU.waitingAlert)}</div>` : ''}
       ${submitError || !check.ok ? `<div class="alert is-error">${bilingualHtml(submitError || check.message)}</div>` : ''}
 
-      <div class="review-list">
-        ${sports
-          .map((s) => {
-            const existing = describeSportConflict(
-              s,
-              sportLabel(s.sportId),
-              state.mobile,
-            )
-            const blocked = !!existing
-            const formatText = formatLabel(s)
-            return `
-              <div class="review-item ${blocked ? 'blocked is-error' : ''} ${s.status === 'waiting' && !blocked ? 'is-waiting' : ''}">
-                <div class="review-sport">
-                  <span class="review-sport-icon">${sportIcon(s.sportId)}</span>
-                  <div>
-                    <h4>${sportBi(s.sportId)}</h4>
-                    <p class="meta">${escapeHtml(formatText)}</p>
-                    ${
-                      existing
-                        ? `<p class="existing-detail">${bilingualHtml(existing)}</p>`
-                        : s.status === 'waiting'
-                          ? `<p class="existing-detail" style="color:#8a6a00">${bi('No open slots — registered as waiting for this sport.', GU.waitingDetail)}</p>`
-                          : ''
-                    }
-                  </div>
-                </div>
-                ${reviewBadge(s)}
-              </div>
-            `
-          })
-          .join('')}
+      <div class="entry-list">
+        ${sports.map((sport) => indoorEntryCard(sport, true)).join('')}
+        ${cricketReviewCard()}
       </div>
 
       <div class="actions">
         <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
-        <button type="button" class="btn btn-gold" data-action="submit" ${!check.ok ? 'disabled' : ''}>
-          ${withIcon(iconCheck(), bi('Submit Registration', GU.submit))}
+        <button type="button" class="btn btn-gold" data-action="next" ${!check.ok ? 'disabled' : ''}>
+          ${withIcon(iconArrowRight(), bi('Continue to pay', 'ચુકવણી તરફ'))}
         </button>
       </div>
     </div>
   `
 }
 
-function renderStep5(): string {
-  const sports = lastRegisteredSports.length
-    ? lastRegisteredSports
-    : buildSelectedSports()
-  const category = state.gender ? genderLabel(state.gender) : ''
-  return `
-    <div class="fade-step success-screen">
-      <div class="success-burst" aria-hidden="true"></div>
-      <div class="success-icon">${iconCheck()}</div>
-      <h2>${bi("You're registered!", GU.successTitle)}</h2>
-      <p>${bi(`Registration saved for ${escapeHtml(state.fullName.trim())}${category ? ` (${escapeHtml(category)})` : ''}.`, `${escapeHtml(state.fullName.trim())}${category ? ` (${category === 'Male' ? GU.male : GU.female})` : ''} ${GU.successSaved}.`)}</p>
+function req(): string {
+  return '<span class="req" aria-hidden="true">*</span>'
+}
 
-      <div class="reference-box" role="status">
-        <span class="reference-label">${iconSpark()} ${bi('Your reference number', GU.referenceLabel)}</span>
-        <strong class="reference-code" id="registration-reference">${escapeHtml(lastReference)}</strong>
-        <p class="reference-hint">${bi('Save this number — use it if you contact the organizers about your registration.', GU.referenceHint)}</p>
-        <button type="button" class="btn btn-ghost reference-copy" data-action="copy-ref">
-          ${withIcon(iconCopy(), bi('Copy reference', GU.copyReference))}
+function cricketField(
+  field: CricketField,
+  labelEn: string,
+  labelGu: string,
+  control: string,
+): string {
+  const errors = cricketErrors
+  const invalid = errors[field] ? ' is-invalid' : ''
+  return `
+    <div class="field${invalid}">
+      <label>${bi(labelEn, labelGu)} ${req()}</label>
+      ${control}
+      ${errors[field] ? `<span class="error">${bilingualHtml(errors[field]!)}</span>` : ''}
+    </div>
+  `
+}
+
+function renderBegin(): string {
+  const indoor = eventById('indoor')
+  return `
+    <div class="fade-step gate-step">
+      <h2 class="step-title">Choose your registration</h2>
+      ${beginError ? `<div class="alert is-error">${bilingualHtml(beginError)}</div>` : ''}
+      <div class="gate-grid">
+        <button type="button" class="gate-card ${pickIndoor ? 'is-selected' : ''}" data-action="toggle-indoor">
+          <span class="gate-banner">
+            <span>
+              <span class="gate-day">${indoor.day}</span>
+              <span class="gate-when">${indoor.month} ${indoor.year}</span>
+            </span>
+            <span class="gate-tick" aria-hidden="true"></span>
+          </span>
+          <span class="gate-body">
+            <span class="gate-kicker">${bi(indoor.date, indoor.dateGu)}</span>
+            <span class="gate-title">Indoor</span>
+            <span class="gate-label">${bi('Sports on this day', 'આ દિવસની રમતો')}</span>
+            <span class="sport-tiles">
+              ${indoor.sports
+                .map(
+                  (sport) => `
+                <span class="sport-tile">
+                  <span class="sport-tile-photo">${sport.sportId ? sportIcon(sport.sportId) : ''}</span>
+                  <span class="sport-tile-name">${sport.en}</span>
+                </span>`,
+                )
+                .join('')}
+            </span>
+          </span>
+        </button>
+
+        <div class="gate-and" aria-hidden="true">And</div>
+
+        <button type="button" class="gate-card ${pickCricket ? 'is-selected' : ''}" data-action="toggle-cricket" data-tone="cricket">
+          <span class="gate-banner">
+            <span class="cricket-head">
+              <span class="gate-banner-title">Cricket sports</span>
+              <span class="cricket-dates">
+                <span class="cricket-date">Turf 10 Jan 2027</span>
+                <span class="cricket-date">Overarm 13 Dec 2026</span>
+              </span>
+            </span>
+            <span class="gate-tick" aria-hidden="true"></span>
+          </span>
+          <span class="gate-photo" aria-hidden="true"></span>
+        </button>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Next', 'આગળ'))}</button>
+      </div>
+    </div>
+  `
+}
+
+function renderCricketGender(): string {
+  return `
+    <div class="fade-step">
+      <h2 class="step-title">${bi('Cricket sports', 'ક્રિકેટ સ્પોર્ટ્સ')}</h2>
+      <p class="step-sub">${bi('Choose Male or Female first. Overarm is only for men.', 'પહેલા પુરુષ અથવા સ્ત્રી પસંદ કરો. ઓવરઆર્મ ફક્ત પુરુષો માટે છે.')}</p>
+      ${cricketGenderError ? `<div class="alert is-error">${bilingualHtml(cricketGenderError)}</div>` : ''}
+      <div class="choice-grid ${cricketGenderError ? 'is-invalid' : ''}">
+        <button type="button" class="choice choice-gender ${cricketGender === 'male' ? 'is-selected' : ''}" data-action="cricket-gender" data-gender="male">
+          <span class="choice-icon-wrap">${iconMale()}</span>
+          <span class="choice-check" aria-hidden="true"></span>
+          <span class="choice-title">${bi('Male', GU.male)}</span>
+          ${namedCricketSlot('turf', 'male')}
+          ${namedCricketSlot('overarm', 'male')}
+        </button>
+        <button type="button" class="choice choice-gender ${cricketGender === 'female' ? 'is-selected' : ''}" data-action="cricket-gender" data-gender="female">
+          <span class="choice-icon-wrap">${iconFemale()}</span>
+          <span class="choice-check" aria-hidden="true"></span>
+          <span class="choice-title">${bi('Female', GU.female)}</span>
+          ${namedCricketSlot('turf', 'female')}
+        </button>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
+        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
+      </div>
+    </div>
+  `
+}
+
+function renderCricketChoice(): string {
+  const turf = eventById('turf')
+  const overarm = eventById('overarm')
+  const female = cricketGender === 'female'
+  const sub = female
+    ? bi('Overarm is only for men. Select Turf.', 'ઓવરઆર્મ ફક્ત પુરુષો માટે છે. ટર્ફ પસંદ કરો.')
+    : bi(
+        'Select Turf, Overarm, or both. The player form is filled once.',
+        'ટર્ફ, ઓવરઆર્મ, અથવા બંને પસંદ કરો. ખેલાડીનું ફોર્મ એક જ વાર ભરાશે.',
+      )
+  return `
+    <div class="fade-step">
+      <h2 class="step-title">${bi('Cricket sports', 'ક્રિકેટ સ્પોર્ટ્સ')}</h2>
+      <p class="step-sub">${sub}</p>
+      ${cricketChoiceError ? `<div class="alert is-error">${bilingualHtml(cricketChoiceError)}</div>` : ''}
+      <div class="choice-grid ${cricketChoiceError ? 'is-invalid' : ''}">
+        <button type="button" class="choice choice-dated ${pickTurf ? 'is-selected' : ''}" data-action="cricket-kind" data-kind="turf" data-tone="turf">
+          <span class="choice-datebar">
+            <span class="cricket-date">Turf ${turf.day} ${turf.month} ${turf.year}</span>
+            <span class="choice-check" aria-hidden="true"></span>
+          </span>
+          <span class="choice-title">${bi('Turf', 'ટર્ફ')}</span>
+          <span class="choice-slots">
+            ${cricketSlotHtml('turf', female ? 'female' : 'male')}
+          </span>
+        </button>
+        ${
+          female
+            ? ''
+            : `<button type="button" class="choice choice-dated ${pickOverarm ? 'is-selected' : ''}" data-action="cricket-kind" data-kind="overarm" data-tone="overarm">
+          <span class="choice-datebar">
+            <span class="cricket-date">Overarm ${overarm.day} ${overarm.month} ${overarm.year}</span>
+            <span class="choice-check" aria-hidden="true"></span>
+          </span>
+          <span class="choice-title">${bi('Overarm', 'ઓવરઆર્મ')}</span>
+          <span class="choice-slots">
+            ${cricketSlotHtml('overarm', 'male')}
+          </span>
+        </button>`
+        }
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
+        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
+      </div>
+    </div>
+  `
+}
+
+function skillPicker(kind: CricketKind, labelEn: string, labelGu: string): string {
+  const selected = cricketSkills[kind]
+  const error = skillErrors[kind]
+  return `
+    <div class="field ${error ? 'is-invalid' : ''}">
+      <label>${bi(labelEn, labelGu)} ${req()}</label>
+      <div class="skill-row ${error ? 'is-invalid' : ''}">
+        ${PLAYER_SKILLS.map(
+          (skill) => `
+          <button type="button" class="choice skill-choice ${selected === skill.id ? 'is-selected' : ''}" data-action="skill" data-cricket="${kind}" data-skill="${skill.id}">
+            <span class="choice-title">${bi(skill.en, skill.gu)}</span>
+          </button>`,
+        ).join('')}
+      </div>
+      ${error ? `<span class="error">${bilingualHtml(error)}</span>` : ''}
+    </div>
+  `
+}
+
+function renderCricketForm(): string {
+  const player = cricketEntry
+  const errors = cricketErrors
+  const female = cricketGender === 'female'
+  const both = pickTurf && pickOverarm
+  const title = both
+    ? bi('Cricket player', 'ક્રિકેટ ખેલાડી')
+    : pickOverarm
+      ? bi('Overarm cricket', 'ઓવરઆર્મ ક્રિકેટ')
+      : bi('Turf cricket', 'ટર્ફ ક્રિકેટ')
+  const who = female ? bi('Female', GU.female) : bi('Male', GU.male)
+  const sub = both
+    ? bi(
+        'Fill this form once. Choose a skill for Turf and a skill for Overarm.',
+        'આ ફોર્મ એક જ વાર ભરો. ટર્ફ અને ઓવરઆર્મ બંને માટે કુશળતા પસંદ કરો.',
+      )
+    : bi(
+        `${who}. Fill the player form once.`,
+        `${female ? GU.female : GU.male}. ખેલાડીનું ફોર્મ એક જ વાર ભરો.`,
+      )
+  const text = (
+    field: 'firstName' | 'fatherName' | 'grandfatherName' | 'surname' | 'mobile' | 'age',
+    labelEn: string,
+    labelGu: string,
+    type = 'text',
+  ) =>
+    cricketField(
+      field,
+      labelEn,
+      labelGu,
+      `<input data-cricket="player" data-field="${field}" type="${type}" value="${escapeAttr(player[field])}" ${field === 'mobile' ? 'inputmode="numeric" maxlength="12"' : ''} />`,
+    )
+  const skills = both
+    ? `${skillPicker('turf', 'Turf · Player skills', 'ટર્ફ · ખેલાડીની કુશળતા')}${skillPicker('overarm', 'Overarm · Player skills', 'ઓવરઆર્મ · ખેલાડીની કુશળતા')}`
+    : skillPicker(
+        pickOverarm ? 'overarm' : 'turf',
+        'Player skills',
+        'ખેલાડીની કુશળતા',
+      )
+
+  return `
+    <div class="fade-step">
+      <h2 class="step-title">${title}</h2>
+      <p class="step-sub">${sub}</p>
+      <div class="cricket-slots">
+        ${pickTurf ? namedCricketSlot('turf', female ? 'female' : 'male') : ''}
+        ${pickOverarm ? namedCricketSlot('overarm', 'male') : ''}
+      </div>
+      ${text('firstName', "Player's first name", 'ખેલાડીનું પ્રથમ નામ')}
+      ${text('fatherName', 'Father/Spouse name', 'પિતા / પતિ-પત્નીનું નામ')}
+      ${text('grandfatherName', 'Grandfather name', 'દાદાનું નામ')}
+      ${text('surname', 'Surname', 'અટક')}
+      ${text('mobile', 'Mobile number', GU.mobile, 'tel')}
+      ${text('age', 'Age', GU.age, 'text')}
+      ${skills}
+      ${cricketField(
+        'birthDate',
+        'Birth date',
+        'જન્મ તારીખ',
+        `<input data-cricket="player" data-field="birthDate" type="date" value="${escapeAttr(player.birthDate)}" />`,
+      )}
+      ${cricketField(
+        'area',
+        "Player's area",
+        'ખેલાડીનો વિસ્તાર',
+        `<select data-cricket="player" data-field="area">
+          <option value="">${escapeAttr(biText('Select area', 'વિસ્તાર પસંદ કરો'))}</option>
+          ${PLAYER_AREAS.map(
+            (area) =>
+              `<option value="${escapeAttr(area)}" ${player.area === area ? 'selected' : ''}>${escapeHtml(area)}</option>`,
+          ).join('')}
+        </select>`,
+      )}
+      <div class="field${errors.photo ? ' is-invalid' : ''}">
+        <label>${bi("Player's photo", 'ખેલાડીનો ફોટો')} ${req()}</label>
+        <p class="section-hint">${bi('JPG or PNG. We optimize it to stay within 3 MB.', 'JPG અથવા PNG. અમે તેને ૩ MBની અંદર લાવીએ છીએ.')}</p>
+        <label class="btn btn-ghost photo-pick">
+          ${withIcon(iconCamera(), photoBusy ? bi('Optimizing…', 'ઓપ્ટિમાઇઝ થઈ રહ્યું છે…') : bi('Upload photo', 'ફોટો અપલોડ કરો'))}
+          <input type="file" accept="image/*" data-cricket-photo="player" ${photoBusy ? 'disabled' : ''} />
+        </label>
+        ${
+          player.photoUrl
+            ? `<div class="photo-preview"><img src="${player.photoUrl}" alt="" /><span>${escapeHtml(player.photoName)}</span></div>`
+            : ''
+        }
+        ${errors.photo ? `<span class="error">${bilingualHtml(errors.photo)}</span>` : ''}
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
+        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
+      </div>
+    </div>
+  `
+}
+
+function seatPill(status: 'confirmed' | 'waiting'): string {
+  const waiting = status === 'waiting'
+  return `<span class="seat-pill ${waiting ? 'is-waiting' : 'is-confirmed'}">${waiting ? bi('Waiting', 'વેઇટિંગ') : bi('Confirmed', 'કન્ફર્મ')}</span>`
+}
+
+function playerLine(
+  labelEn: string,
+  labelGu: string,
+  name: string | undefined,
+  mobile: string | undefined,
+  age: number | string | undefined,
+): string {
+  const bits = [name?.trim() || '—', mobile?.trim() || '—']
+  if (age != null && String(age).trim() !== '') bits.push(String(age))
+  return `<p class="entry-line"><span>${bi(labelEn, labelGu)}</span><strong>${escapeHtml(bits.join(' · '))}</strong></p>`
+}
+
+function indoorEntryCard(sport: SelectedSport, showSlots = false): string {
+  if (sport.sportId === 'turf' || sport.sportId === 'overarm') return ''
+  const existing = describeSportConflict(sport, sportLabel(sport.sportId), state.mobile)
+  const format =
+    sport.sportId === 'football'
+      ? bi('Team', 'ટીમ')
+      : sport.format === 'double'
+        ? bi('Doubles', 'ડબલ્સ')
+        : bi('Singles', 'સિંગલ્સ')
+  const people =
+    sport.format === 'double'
+      ? `${playerLine('Player 1', 'ખેલાડી ૧', sport.player1Name, sport.player1Mobile, sport.player1Age)}${playerLine('Player 2', 'ખેલાડી ૨', sport.player2Name, sport.player2Mobile, sport.player2Age)}`
+      : playerLine(
+          'Player',
+          'ખેલાડી',
+          sport.player1Name || state.fullName,
+          sport.player1Mobile || normalizeMobile(state.mobile),
+          sport.player1Age,
+        )
+  const note = existing ? `<p class="existing-detail">${bilingualHtml(existing)}</p>` : ''
+  const slots = showSlots && state.gender ? slotBadgeFor(sport.sportId, state.gender) : ''
+  return `
+    <article class="entry-card ${existing ? 'is-error' : ''} ${sport.status === 'waiting' ? 'is-waiting' : 'is-confirmed'}" data-sport="${sport.sportId}">
+      <header class="entry-head">
+        <span class="entry-icon">${sportIcon(sport.sportId)}</span>
+        <div class="entry-copy">
+          <h4>${sportBi(sport.sportId)}</h4>
+          <p>${format}</p>
+          ${slots}
+        </div>
+        ${seatPill(sport.status)}
+      </header>
+      ${people}
+      ${note}
+    </article>
+  `
+}
+
+function cricketStatus(which: CricketKind): 'confirmed' | 'waiting' {
+  const saved = receiptCricketStatus[which]
+  if (currentPhase().id === 'done' && saved) return saved
+  const gender = which === 'overarm' || cricketGender !== 'female' ? 'male' : 'female'
+  return cricketSlotCopy(which, gender).left > 0 ? 'confirmed' : 'waiting'
+}
+
+function cricketSkillLine(which: CricketKind): string {
+  const skill = PLAYER_SKILLS.find((item) => item.id === cricketSkills[which])
+  const label = which === 'turf' ? bi('Turf', 'ટર્ફ') : bi('Overarm', 'ઓવરઆર્મ')
+  const text = skill ? bi(skill.en, skill.gu) : '—'
+  return `<p class="entry-line"><span>${label}</span><strong>${text}</strong>${seatPill(cricketStatus(which))}</p>`
+}
+
+function cricketReviewCard(): string {
+  if (!pickTurf && !pickOverarm) return ''
+  const player = cricketEntry
+  const both = pickTurf && pickOverarm
+  const heading = both ? 'Cricket' : pickTurf ? 'Turf cricket' : 'Overarm cricket'
+  const headingGu = both ? 'ક્રિકેટ' : pickTurf ? 'ટર્ફ ક્રિકેટ' : 'ઓવરઆર્મ ક્રિકેટ'
+  const who = both
+    ? `${bi('Turf', 'ટર્ફ')} · ${bi('Overarm', 'ઓવરઆર્મ')}`
+    : pickOverarm
+      ? bi('Men only', 'ફક્ત પુરુષ')
+      : bi(
+          cricketGender === 'female' ? 'Female' : 'Male',
+          cricketGender === 'female' ? GU.female : GU.male,
+        )
+  const name = [player.firstName, player.fatherName, player.grandfatherName, player.surname]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ')
+  const details = [player.mobile.trim(), player.age.trim(), player.birthDate.trim(), player.area.trim()]
+    .filter(Boolean)
+    .join(' · ')
+  return `
+    <article class="entry-card" data-tone="${both ? 'turf' : pickTurf ? 'turf' : 'overarm'}">
+      <header class="entry-head">
+        ${
+          player.photoUrl
+            ? `<img class="entry-photo" src="${player.photoUrl}" alt="" />`
+            : `<span class="entry-icon">${iconCricket()}</span>`
+        }
+        <div class="entry-copy">
+          <h4>${bi(heading, headingGu)}</h4>
+          <p>${who}</p>
+        </div>
+      </header>
+      <p class="entry-line"><span>${bi('Player', 'ખેલાડી')}</span><strong>${escapeHtml(name || '—')}</strong></p>
+      ${details ? `<p class="entry-line"><span>${bi('Details', 'વિગત')}</span><strong>${escapeHtml(details)}</strong></p>` : ''}
+      ${pickTurf ? cricketSkillLine('turf') : ''}
+      ${pickOverarm ? cricketSkillLine('overarm') : ''}
+    </article>
+  `
+}
+
+function inr(amount: number): string {
+  return `₹${amount.toLocaleString('en-IN')}`
+}
+
+function feeLines(
+  sports = pickIndoor ? buildSelectedSports() : [],
+): { label: string; amount: number }[] {
+  const lines: { label: string; amount: number }[] = []
+  if (pickIndoor) {
+    for (const sport of sports) {
+      const each = getFee(sport.sportId)
+      const players = seatWeight(sport.format)
+      lines.push({
+        label: `${sportLabel(sport.sportId)} · ${players} × ${inr(each)}`,
+        amount: each * players,
+      })
+    }
+  }
+  if (pickTurf) {
+    lines.push({
+      label: `Turf cricket · 1 × ${inr(getFee('turf'))}`,
+      amount: getFee('turf'),
+    })
+  }
+  if (pickOverarm) {
+    lines.push({
+      label: `Overarm cricket · 1 × ${inr(getFee('overarm'))}`,
+      amount: getFee('overarm'),
+    })
+  }
+  return lines
+}
+
+function amountDue(): number {
+  return feeLines().reduce((sum, line) => sum + line.amount, 0)
+}
+
+function billHtml(lines: { label: string; amount: number }[], total: number): string {
+  return `
+    <section class="bill">
+      <p class="bill-kicker">${bi('Amount due', 'ચૂકવવાની રકમ')}</p>
+      <ul class="bill-lines">
+        ${lines
+          .map(
+            (line) =>
+              `<li><span>${escapeHtml(line.label)}</span><strong>${inr(line.amount)}</strong></li>`,
+          )
+          .join('')}
+      </ul>
+      <p class="bill-total"><span>${bi('Total', 'કુલ')}</span><strong>${inr(total)}</strong></p>
+    </section>
+  `
+}
+
+function registrationCards(sports: ReturnType<typeof buildSelectedSports>): string {
+  return `
+    <div class="entry-list">
+      ${sports.map((sport) => indoorEntryCard(sport)).join('')}
+      ${cricketReviewCard()}
+    </div>
+  `
+}
+
+function renderPay(): string {
+  const total = amountDue()
+  const showQr = total < QR_LIMIT
+  const lines = feeLines()
+  const sports = pickIndoor ? buildSelectedSports() : []
+  const hasWaiting = anySeatWaiting()
+  return `
+    <div class="fade-step pay-step">
+      <h2 class="step-title">${bi('Pay', 'ચુકવણી')}</h2>
+      <p class="step-sub">${bi('Pay the entry fee online, or hand the cash to one of the organisers.', 'એન્ટ્રી ફી ઓનલાઇન ચૂકવો, અથવા રોકડ આયોજકને આપો.')}</p>
+      ${hasWaiting ? `<div class="alert" style="background:#fff8e6;border-color:rgba(212,160,23,0.35);color:#8a6a00">${bi('Some sports are full — you will be added to the waiting list for those.', GU.waitingAlert)}</div>` : ''}
+      ${payError ? `<div class="alert is-error">${bilingualHtml(payError)}</div>` : ''}
+      <div class="entry-list">
+        ${sports.map((sport) => indoorEntryCard(sport, true)).join('')}
+        ${cricketReviewCard()}
+      </div>
+      ${billHtml(lines, total)}
+
+      <div class="choice-grid">
+        <button type="button" class="choice ${payMode === 'online' ? 'is-selected' : ''}" data-action="pay-mode" data-mode="online">
+          <span class="choice-check" aria-hidden="true"></span>
+          <span class="choice-title">${bi('Pay online', 'ઓનલાઇન ચૂકવો')}</span>
+          <span class="choice-meta">${bi('QR, UPI, or bank transfer', 'QR, UPI, અથવા બેંક')}</span>
+        </button>
+        <button type="button" class="choice ${payMode === 'cash' ? 'is-selected' : ''}" data-action="pay-mode" data-mode="cash">
+          <span class="choice-check" aria-hidden="true"></span>
+          <span class="choice-title">${bi('Cash', 'રોકડ')}</span>
+          <span class="choice-meta">${bi('Select who you paid', 'જેને આપ્યું તે પસંદ કરો')}</span>
         </button>
       </div>
 
-      <div class="review-list" style="text-align:left;margin-bottom:1.25rem">
-        ${sports
-          .map((s) => {
-            const formatText = formatLabel(s)
-            const badge =
-              s.status === 'waiting'
-                ? `<span class="badge badge-full">${bi('Waiting', GU.waiting)}</span>`
-                : `<span class="badge badge-ok">${bi('Confirmed', GU.confirmed)}</span>`
-            return `
-              <div class="review-item">
-                <div class="review-sport">
-                  <span class="review-sport-icon">${sportIcon(s.sportId)}</span>
-                  <div>
-                    <h4>${sportBi(s.sportId)}</h4>
-                    <p class="meta">${escapeHtml(formatText)}</p>
-                  </div>
-                </div>
-                ${badge}
-              </div>
-            `
-          })
-          .join('')}
+      ${
+        payMode === 'online'
+          ? `
+        <div class="pay-online">
+          ${
+            showQr
+              ? `<figure class="pay-qr">
+            <img src="/upi-qr.png" alt="Scan to pay ${escapeAttr(BANK.name)}" />
+            <figcaption>${bi('Scan to pay with any UPI app', 'કોઈ પણ UPI એપથી સ્કેન કરીને ચૂકવો')}</figcaption>
+          </figure>`
+              : `<p class="pay-note">${bi(`QR is shown only when the amount is below ${inr(QR_LIMIT)}. Use UPI or the bank account.`, `QR ફક્ત ${inr(QR_LIMIT)}થી ઓછી રકમ માટે છે. UPI અથવા બેંક એકાઉન્ટ વાપરો.`)}</p>`
+          }
+          <div class="pay-block">
+            <p class="pay-kicker">${bi('Or UPI', 'અથવા UPI')}</p>
+            <p class="pay-value">${escapeHtml(UPI_ID)}</p>
+            <button type="button" class="btn btn-ghost btn-small" data-action="copy-text" data-copy="${escapeAttr(UPI_ID)}">${bi('Copy UPI', 'UPI કૉપી')}</button>
+          </div>
+          <div class="pay-block">
+            <p class="pay-kicker">${bi('Or bank transfer', 'અથવા બેંક ટ્રાન્સફર')}</p>
+            <ol class="pay-bank">
+              <li><span>A/c No.</span><strong>${BANK.account}</strong></li>
+              <li><span>IFSC Code</span><strong>${BANK.ifsc}</strong></li>
+              <li><span>Home Branch</span><strong>${escapeHtml(BANK.branch)}</strong></li>
+              <li><span>UPI ID</span><strong>${escapeHtml(UPI_ID)}</strong></li>
+            </ol>
+            <p class="pay-account-name">${escapeHtml(BANK.name)}</p>
+          </div>
+          <div class="field">
+            <label>${bi('Upload payment screenshot', 'ચુકવણીનો સ્ક્રીનશૉટ અપલોડ કરો')}</label>
+            <input data-payment-shot type="file" accept="image/*" />
+            ${
+              paymentShot
+                ? `<p class="pay-file">${escapeHtml(paymentShotName || 'Screenshot added')}</p><img class="pay-shot" src="${paymentShot}" alt="" />`
+                : `<p class="pay-file">${bi('After payment, add a screenshot and submit.', 'ચુકવણી પછી સ્ક્રીનશૉટ ઉમેરીને સબમિટ કરો.')}</p>`
+            }
+          </div>
+        </div>`
+          : ''
+      }
+
+      ${
+        payMode === 'cash'
+          ? `
+        <div class="field">
+          <label for="cashCollector">${bi('Person you gave the amount to', 'જેને રકમ આપી તે વ્યક્તિ')}</label>
+          <select id="cashCollector" data-cash-collector>
+            <option value="">${bi('Select a name', 'નામ પસંદ કરો')}</option>
+            ${CASH_COLLECTORS.map(
+              (name) =>
+                `<option value="${escapeAttr(name)}" ${cashCollector === name ? 'selected' : ''}>${escapeHtml(name)}</option>`,
+            ).join('')}
+          </select>
+        </div>`
+          : ''
+      }
+
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
+        <button type="button" class="btn btn-gold" data-action="submit" ${payMode && !submitBusy ? '' : 'disabled'}>
+          ${withIcon(iconCheck(), submitBusy ? bi('Saving…', 'સાચવી રહ્યા છીએ…') : bi('Submit', 'સબમિટ'))}
+        </button>
       </div>
-      <button type="button" class="btn btn-primary" data-action="reset" style="margin:0 auto;display:inline-flex">
-        ${withIcon(iconSpark(), bi('Register another player', GU.registerAnother))}
-      </button>
     </div>
   `
+}
+
+function renderDone(): string {
+  const sports = pickIndoor ? lastRegisteredSports : []
+  const lines = frozenBill ?? feeLines(sports)
+  const total = lines.reduce((sum, line) => sum + line.amount, 0)
+  const when = new Date().toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })
+  const paidHow =
+    payMode === 'cash'
+      ? `Cash · ${cashCollector}`
+      : 'Online · UPI / bank'
+  return `
+    <div class="fade-step success-screen">
+      <article class="receipt" id="receipt-sheet">
+        <header class="receipt-brand">
+          <img src="/chanasma-logo.png" alt="શ્રી ચાણસ્મા જૈન યુવા યુથ" />
+          <div>
+            <p class="receipt-kicker">CHANASMA OLYMPIC</p>
+            <p class="receipt-sponsor">${bi('Main sponsor', 'મુખ્ય પ્રાયોજક')} · Jarin Bhai</p>
+          </div>
+        </header>
+        <h2>${bi('Payment receipt', 'ચુકવણીની રસીદ')}</h2>
+        <p class="receipt-no">${escapeHtml(receiptNo)}</p>
+        <p class="receipt-when">${escapeHtml(when)}</p>
+        <div id="receipt-body">
+          ${registrationCards(sports)}
+          ${billHtml(lines, total)}
+          <p class="receipt-paid"><span>${bi('Paid by', 'ચુકવણી')}</span><strong>${escapeHtml(paidHow)}</strong></p>
+          ${
+            payMode === 'online' && paymentShot
+              ? `<img class="pay-shot" src="${paymentShot}" alt="${escapeAttr(bi('Payment screenshot', 'ચુકવણીનો સ્ક્રીનશૉટ'))}" />`
+              : ''
+          }
+        </div>
+      </article>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" data-action="download-receipt">${bi('Download PDF', 'PDF ડાઉનલોડ')}</button>
+        <button type="button" class="btn btn-ghost" data-action="print">${bi('Print receipt', 'રસીદ છાપો')}</button>
+        <button type="button" class="btn btn-primary" data-action="reset">
+          ${withIcon(iconSpark(), bi('Start again', 'ફરી શરૂ કરો'))}
+        </button>
+      </div>
+    </div>
+  `
+}
+
+async function downloadReceipt(): Promise<void> {
+  const button = document.querySelector<HTMLButtonElement>('[data-action="download-receipt"]')
+  const sheet = document.getElementById('receipt-sheet')
+  const label = button?.innerHTML || ''
+  if (!sheet) return
+  if (button) button.disabled = true
+  try {
+    const { jsPDF } = await import('jspdf')
+    const { default: html2canvas } = await import('html2canvas-pro')
+    const canvas = await html2canvas(sheet, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+      useCORS: true,
+    })
+    const image = canvas.toDataURL('image/jpeg', 0.92)
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = pdf.internal.pageSize.getHeight()
+    const margin = 28
+    const usableWidth = pageWidth - margin * 2
+    const usableHeight = pageHeight - margin * 2
+    const imageHeight = (canvas.height * usableWidth) / canvas.width
+    let drawn = 0
+    let page = 0
+    while (drawn < imageHeight - 1) {
+      if (page > 0) pdf.addPage()
+      pdf.addImage(image, 'JPEG', margin, margin - drawn, usableWidth, imageHeight)
+      drawn += usableHeight
+      page += 1
+    }
+    const filename = `${receiptNo || 'chansma-receipt'}.pdf`
+    const blob = pdf.output('blob')
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.rel = 'noopener'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500)
+  } catch (error) {
+    console.error(error)
+    if (button) {
+      button.disabled = false
+      button.textContent = 'Download failed. Try again.'
+      return
+    }
+  }
+  if (button) {
+    button.disabled = false
+    button.innerHTML = label
+  }
 }
 
 function escapeHtml(value: string): string {
@@ -1339,23 +2474,34 @@ function escapeAttr(value: string): string {
   return escapeHtml(value).replaceAll("'", '&#39;')
 }
 
+function renderBody(): string {
+  const phase = currentPhase()
+  if (phase.id === 'begin') return renderBegin()
+  if (phase.id === 'cricket-gender') return renderCricketGender()
+  if (phase.id === 'cricket-choice') return renderCricketChoice()
+  if (phase.id === 'cricket-form') return renderCricketForm()
+  if (phase.id === 'review') return renderStep4()
+  if (phase.id === 'pay') return renderPay()
+  if (phase.id === 'done') return renderDone()
+  if (phase.id !== 'indoor') return renderBegin()
+  if (phase.indoorStep === 1) return renderStep1()
+  if (phase.indoorStep === 2) return renderStep2()
+  if (phase.indoorStep === 3) return renderStep3()
+  return renderStep4()
+}
+
 function render(): void {
+  setActiveEvent(pickIndoor ? 'indoor' : null)
+
+  const phase = currentPhase()
+  const key = phaseKey(phase)
   const shell = app.querySelector<HTMLElement>('.shell:not(.shell-admin)')
   const panel = shell?.querySelector<HTMLElement>('.panel')
   const panelBody = panel?.querySelector<HTMLElement>('.panel-body')
   const canPatch = Boolean(shell && panel && panelBody)
-  const stepChanged = !canPatch || paintedStep !== step
+  const stepChanged = !canPatch || paintedKey !== key
 
-  let body =
-    step === 1
-      ? renderStep1()
-      : step === 2
-        ? renderStep2()
-        : step === 3
-          ? renderStep3()
-          : step === 4
-            ? renderStep4()
-            : renderStep5()
+  let body = renderBody()
 
   if (!stepChanged) {
     body = body.replace(
@@ -1372,13 +2518,22 @@ function render(): void {
   }
 
   if (canPatch && shell && panel && panelBody) {
+    const brandSub = shell.querySelector<HTMLElement>('.brand p')
+    if (brandSub) {
+      const subtitle = brandSubHtml()
+      brandSub.innerHTML = subtitle
+      brandSub.hidden = subtitle.trim() === ''
+    }
     const scrollY = shouldRevealErrors
       ? null
       : stepChanged
         ? 0
         : window.scrollY
+    shell.classList.toggle('shell-gate', phase.id === 'begin')
+    panel.dataset.group = phase.id === 'begin' ? '' : phaseGroup(phase)
     const progress = panel.querySelector('.progress-track')
-    if (step === 5) {
+    const showWizard = phase.id !== 'begin'
+    if (!showWizard) {
       progress?.remove()
     } else if (progress) {
       progress.outerHTML = renderProgress()
@@ -1398,17 +2553,17 @@ function render(): void {
     app.innerHTML = `
     <a class="nav-corner nav-corner-left" href="#/admin">${iconAdmin()} Admin</a>
 
-    <div class="shell">
+    <div class="shell${phase.id === 'begin' ? ' shell-gate' : ''}">
       <header class="brand">
-        <div class="brand-mark">
-          <div class="brand-ring" aria-hidden="true"></div>
-        </div>
-        <h1>CHANSMA OLYMPIC</h1>
-        <p>${bi('Tournament Registration', GU.brandSub)}</p>
+        <img class="brand-logo" src="/chanasma-logo.png" alt="શ્રી ચાણસ્મા જૈન યુવા યુથ" />
+        <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
+        <div class="olympic-rings" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+        <p${brandSubHtml() ? '' : ' hidden'}>${brandSubHtml()}</p>
+        <div class="brand-sponsor"><span>Main sponsor</span><strong>Jarin Bhai</strong></div>
       </header>
 
-      <main class="panel">
-        ${step !== 5 ? renderProgress() : ''}
+      <main class="panel" data-group="${phase.id === 'begin' ? '' : phaseGroup(phase)}">
+        ${phase.id !== 'begin' ? renderProgress() : ''}
         <div class="panel-body">
           ${body}
         </div>
@@ -1417,11 +2572,12 @@ function render(): void {
   `
   }
 
-  paintedStep = step
+  paintedKey = key
   bindEvents()
 
-  if (step >= 2 && step <= 4) startLiveSlotUpdates()
+  if (phase.id === 'indoor' && phase.indoorStep >= 2) startLiveSlotUpdates()
   else stopLiveSlotUpdates()
+  watchSeats()
 
   if (shouldRevealErrors) {
     shouldRevealErrors = false
@@ -1486,7 +2642,80 @@ function checkAllPlayerMobileConflictsOnPage(): void {
   }
 }
 
+async function applyPhoto(file: File): Promise<void> {
+  photoBusy = true
+  delete cricketErrors.photo
+  render()
+  try {
+    const optimized = await optimizePhoto(file)
+    cricketEntry.photoUrl = optimized.dataUrl
+    cricketEntry.photoName = file.name
+  } catch (error) {
+    cricketErrors.photo =
+      error instanceof Error ? error.message : 'Could not use this photo.'
+  }
+  photoBusy = false
+  render()
+}
+
 function bindEvents(): void {
+  app.querySelectorAll<HTMLSelectElement>('select[data-cash-collector]').forEach((select) => {
+    select.addEventListener('change', () => {
+      cashCollector = select.value
+      payError = ''
+    })
+  })
+
+  app.querySelectorAll<HTMLInputElement>('input[data-payment-shot]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const file = input.files?.[0]
+      if (!file) return
+      if (!file.type.startsWith('image/')) {
+        payError = biText('Upload a photo of the payment.', 'ચુકવણીનો ફોટો અપલોડ કરો.')
+        render()
+        return
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        payError = biText('Screenshot must be under 8 MB.', 'સ્ક્રીનશૉટ 8 MBથી નાનો હોવો જોઈએ.')
+        render()
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => {
+        paymentShot = String(reader.result || '')
+        paymentShotName = file.name
+        payError = ''
+        render()
+      }
+      reader.readAsDataURL(file)
+    })
+  })
+
+  app.querySelectorAll<HTMLSelectElement>('select[data-cricket]').forEach((select) => {
+    select.addEventListener('change', () => {
+      cricketEntry.area = select.value
+      delete cricketErrors.area
+      render()
+    })
+  })
+
+  app.querySelectorAll<HTMLInputElement>('input[data-cricket-photo]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const file = input.files?.[0]
+      if (!file) return
+      void applyPhoto(file)
+    })
+  })
+
+  app.querySelectorAll<HTMLInputElement>('input[data-field="birthDate"]').forEach((input) => {
+    input.addEventListener('change', () => {
+      cricketEntry.birthDate = input.value
+      const age = ageFromBirthDate(input.value)
+      if (age != null) cricketEntry.age = String(age)
+      render()
+    })
+  })
+
   app.querySelectorAll<HTMLInputElement>('input').forEach((input) => {
     input.addEventListener('input', () => {
       const doublesSport = input.dataset.doublesSport as SportId | undefined
@@ -1511,6 +2740,40 @@ function bindEvents(): void {
         players[doublesPlayer][doublesField] = nextValue
         if (doublesErrors[doublesSport]?.[doublesPlayer]?.[doublesField]) {
           delete doublesErrors[doublesSport]![doublesPlayer]![doublesField]
+          const field = input.closest('.field')
+          field?.classList.remove('is-invalid')
+          input.classList.remove('is-invalid')
+          field?.querySelector('.error')?.remove()
+        }
+        return
+      }
+
+      const cricketWhich = input.dataset.cricket
+      const cricketFieldName = input.dataset.field as CricketField | undefined
+      if (cricketWhich && cricketFieldName && cricketFieldName !== 'skill' && cricketFieldName !== 'area' && cricketFieldName !== 'photo') {
+        const player = cricketEntry
+        let nextValue = input.value
+        if (cricketFieldName === 'mobile') {
+          nextValue = sanitizeMobileInput(input.value)
+          if (input.value !== nextValue) input.value = nextValue
+        } else if (cricketFieldName === 'age') {
+          nextValue = input.value.replace(/\D/g, '').slice(0, 3)
+          if (input.value !== nextValue) input.value = nextValue
+        }
+        if (
+          cricketFieldName === 'firstName' ||
+          cricketFieldName === 'fatherName' ||
+          cricketFieldName === 'grandfatherName' ||
+          cricketFieldName === 'surname' ||
+          cricketFieldName === 'mobile' ||
+          cricketFieldName === 'age' ||
+          cricketFieldName === 'birthDate'
+        ) {
+          player[cricketFieldName] = nextValue
+        }
+        const bag = cricketErrors
+        if (bag[cricketFieldName]) {
+          delete bag[cricketFieldName]
           const field = input.closest('.field')
           field?.classList.remove('is-invalid')
           input.classList.remove('is-invalid')
@@ -1572,9 +2835,51 @@ function bindEvents(): void {
 
     btn.addEventListener('click', () => {
       const action = btn.dataset.action
-      if (action === 'next') goNext()
+      if (action === 'toggle-indoor') {
+        pickIndoor = !pickIndoor
+        beginError = ''
+        render()
+      } else if (action === 'toggle-cricket') {
+        pickCricket = !pickCricket
+        if (!pickCricket) {
+          pickTurf = false
+          pickOverarm = false
+          cricketGender = null
+        }
+        beginError = ''
+        render()
+      } else if (action === 'cricket-kind' && (btn.dataset.kind === 'turf' || btn.dataset.kind === 'overarm')) {
+        if (btn.dataset.kind === 'overarm' && cricketGender === 'female') return
+        if (btn.dataset.kind === 'turf') pickTurf = !pickTurf
+        else pickOverarm = !pickOverarm
+        cricketChoiceError = ''
+        render()
+      } else if (action === 'cricket-gender' && btn.dataset.gender) {
+        cricketGender = btn.dataset.gender as Gender
+        if (cricketGender === 'female') pickOverarm = false
+        cricketGenderError = ''
+        render()
+      } else if (action === 'skill' && btn.dataset.cricket && btn.dataset.skill) {
+        const which = btn.dataset.cricket === 'overarm' ? 'overarm' : 'turf'
+        cricketSkills[which] = btn.dataset.skill as PlayerSkill
+        delete skillErrors[which]
+        render()
+      } else if (action === 'pay-mode' && (btn.dataset.mode === 'online' || btn.dataset.mode === 'cash')) {
+        payMode = btn.dataset.mode
+        payError = ''
+        render()
+      } else if (action === 'copy-text' && btn.dataset.copy) {
+        const copied = btn.dataset.copy
+        void navigator.clipboard.writeText(copied).then(() => {
+          btn.textContent = 'Copied!'
+        })
+      } else if (action === 'download-receipt') {
+        downloadReceipt()
+      } else if (action === 'print') {
+        window.print()
+      } else if (action === 'next') goNext()
       else if (action === 'back') goBack()
-      else if (action === 'submit') submit()
+      else if (action === 'submit' && !submitBusy) submit()
       else if (action === 'reset') resetForm()
       else if (action === 'copy-ref' && lastReference) {
         void navigator.clipboard.writeText(lastReference).then(() => {
@@ -1616,12 +2921,13 @@ async function boot(): Promise<void> {
   await Promise.all([
     refreshRegistrations(),
     refreshCapacities(),
+    refreshCricketCapacities(),
     refreshAgeLimits(),
+    refreshFees(),
   ])
   connectRealtime()
   onRealtimeUpdate(() => {
-    if (isAdminRoute()) return
-    updateLiveSlotBadges()
+    syncLiveSeats()
   })
   window.addEventListener('hashchange', () => {
     route()

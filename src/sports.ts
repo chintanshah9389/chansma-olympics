@@ -1,4 +1,4 @@
-import type { Gender, SportConfig, SportId } from './types'
+import type { Gender, SeatSportId, SportConfig, SportId } from './types'
 
 export type SportCapacityPair = { male: number; female: number }
 export type SportCapacities = Record<SportId, SportCapacityPair>
@@ -97,7 +97,9 @@ export function applyCapacities(capacities: Partial<SportCapacities>): void {
   }
 }
 
-export function sportLabel(id: SportId): string {
+export function sportLabel(id: SeatSportId): string {
+  if (id === 'turf') return 'Turf cricket'
+  if (id === 'overarm') return 'Overarm cricket'
   return SPORTS[id].label
 }
 

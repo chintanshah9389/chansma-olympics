@@ -1,4 +1,4 @@
-import type { SportId } from './types'
+import type { SeatSportId, SportId } from './types'
 
 const svg = (body: string, className = 'icon'): string =>
   `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`
@@ -17,6 +17,17 @@ export const iconPin = (): string =>
   svg(
     `<path d="M12 22s7-5.2 7-12a7 7 0 1 0-14 0c0 6.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>`,
   )
+
+export const iconCamera = (): string =>
+  svg(
+    `<path d="M4 8h3l1.5-2h7L17 8h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"/><circle cx="12" cy="13" r="3.2"/>`,
+  )
+
+function sportImage(file: string): string {
+  return `<img class="icon sport-icon" src="/icons/${file}" alt="" />`
+}
+
+export const iconCricket = (): string => sportImage('photo-cricket.jpg')
 
 export const iconArrowRight = (): string =>
   svg(`<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>`, 'icon icon-sm')
@@ -92,17 +103,18 @@ export const iconDouble = (): string =>
     `<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M2.5 20a5.5 5.5 0 0 1 11 0"/><path d="M10.5 20a5.5 5.5 0 0 1 11 0"/>`,
   )
 
-const sportPaths: Record<SportId, string> = {
-  football: `<circle cx="12" cy="12" r="9"/><path d="M12 3v18"/><path d="M3 12h18"/><path d="M5.5 5.5c2.5 2 5 3 6.5 3s4-1 6.5-3"/><path d="M5.5 18.5c2.5-2 5-3 6.5-3s4 1 6.5 3"/>`,
-  pickleball: `<circle cx="12" cy="12" r="8"/><circle cx="9" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="14" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="11" cy="14" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="14" r="1" fill="currentColor" stroke="none"/><path d="M4 16l4-2"/>`,
-  carrom: `<rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="12" cy="12" r="2.5"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="16.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="7.5" cy="16.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="16.5" cy="16.5" r="1.2" fill="currentColor" stroke="none"/>`,
-  chess: `<path d="M8 20h8"/><path d="M9 20v-3h6v3"/><path d="M10 17c0-2 1-3 2-4 1 1 2 2 2 4"/><path d="M9 10h6"/><path d="M10 10V8l-1.5-2h7L14 8v2"/><circle cx="12" cy="4.5" r="1.5"/>`,
-  tt: `<circle cx="8" cy="14" r="4"/><path d="M11.5 11.5 18 5"/><path d="M15 5h4v4"/><path d="M6.5 17.5 4 21"/>`,
-  badminton: `<path d="M12 14 7 21"/><path d="M12 14l5 7"/><path d="M12 14V8"/><path d="M9 5.5c1.2-2 4.8-2 6 0"/><path d="M8.5 8c1.5-1.8 5.5-1.8 7 0"/><path d="M8 10.5c1.8-1.4 6.2-1.4 8 0"/>`,
+const sportFiles: Record<SportId, string> = {
+  football: 'photo-football.jpg',
+  pickleball: 'photo-pickleball.jpg',
+  carrom: 'photo-carrom.jpg',
+  chess: 'photo-chess.jpg',
+  tt: 'photo-table-tennis.jpg',
+  badminton: 'photo-badminton.jpg',
 }
 
-export function sportIcon(id: SportId): string {
-  return svg(sportPaths[id], 'icon sport-icon')
+export function sportIcon(id: SeatSportId): string {
+  if (id === 'turf' || id === 'overarm') return iconCricket()
+  return sportImage(sportFiles[id])
 }
 
 export function withIcon(iconHtml: string, label: string): string {

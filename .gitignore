@@ -1,5 +1,9 @@
 node_modules
 dist
+uploads/cricket/*
+uploads/payments/*
+!uploads/cricket/.gitkeep
+!uploads/payments/.gitkeep
 dist-ssr
 *.local
 .env

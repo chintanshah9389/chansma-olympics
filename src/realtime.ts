@@ -1,4 +1,10 @@
-import { refreshAgeLimits, refreshCapacities, refreshRegistrations } from './storage'
+import {
+  refreshAgeLimits,
+  refreshCapacities,
+  refreshCricketCapacities,
+  refreshFees,
+  refreshRegistrations,
+} from './storage'
 
 type RealtimeListener = () => void
 
@@ -34,7 +40,9 @@ async function handleUpdate(_type?: string): Promise<void> {
   await Promise.all([
     refreshRegistrations(),
     refreshCapacities(),
+    refreshCricketCapacities(),
     refreshAgeLimits(),
+    refreshFees(),
   ])
   notify()
 }
@@ -75,7 +83,9 @@ export function connectRealtime(): void {
       if (
         data.type === 'registrations-updated' ||
         data.type === 'capacities-updated' ||
+        data.type === 'cricket-capacities-updated' ||
         data.type === 'age-limits-updated' ||
+        data.type === 'fees-updated' ||
         data.type === 'connected'
       ) {
         void handleUpdate(data.type)

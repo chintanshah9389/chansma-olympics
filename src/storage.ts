@@ -1,20 +1,117 @@
+import { applyFees, getFees, type FeeId } from './fees'
+import {
+  applyCricketCapacities,
+  getCricketCapacities,
+  type CricketCapacities,
+} from './events'
 import type {
   Gender,
   Registration,
+  SeatSportId,
   SelectedSport,
   SportId,
 } from './types'
 import { applyAgeLimits, getAgeLimits, getSportAgeLimit, type SportAgeLimits } from './ageLimits'
 import { applyCapacities, getCapacities, sportCapacity, type SportCapacities } from './sports'
 import { GU, biText } from './i18n'
+import type { EventId } from './events'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || ''
 
 let cache: Registration[] = []
 let loadError: string | null = null
+let activeEvent: EventId | null = null
+
+/** Slot counts and duplicate checks only look at the event the participant chose. */
+export function setActiveEvent(id: EventId | null): void {
+  activeEvent = id
+}
+
+function registrationEvent(reg: Registration): EventId {
+  return reg.event === 'overarm' || reg.event === 'turf' ? reg.event : 'indoor'
+}
+
+function inActiveEvent(reg: Registration): boolean {
+  if (!activeEvent) return true
+  return registrationEvent(reg) === activeEvent
+}
 
 function apiUrl(path: string): string {
   return `${API_BASE}${path}`
+}
+
+const ADMIN_TOKEN_KEY = 'chansma-admin-token'
+const ADMIN_ROLE_KEY = 'chansma-admin-role'
+
+export type AdminRole = 'admin' | 'superadmin'
+
+export function getAdminToken(): string {
+  return sessionStorage.getItem(ADMIN_TOKEN_KEY) || ''
+}
+
+export function getAdminRole(): AdminRole {
+  return sessionStorage.getItem(ADMIN_ROLE_KEY) === 'superadmin'
+    ? 'superadmin'
+    : 'admin'
+}
+
+function setAdminSession(token: string, role: AdminRole): void {
+  sessionStorage.setItem(ADMIN_TOKEN_KEY, token)
+  sessionStorage.setItem(ADMIN_ROLE_KEY, role)
+}
+
+export function clearAdminToken(): void {
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY)
+  sessionStorage.removeItem(ADMIN_ROLE_KEY)
+}
+
+function adminHeaders(json = false): HeadersInit {
+  const headers: Record<string, string> = {}
+  if (json) headers['Content-Type'] = 'application/json'
+  const token = getAdminToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
+}
+
+export async function loginAdmin(
+  username: string,
+  password: string,
+): Promise<void> {
+  const response = await fetch(apiUrl('/api/admin/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  const body = (await response.json().catch(() => null)) as {
+    token?: string
+    role?: AdminRole
+    error?: string
+  } | null
+  if (!response.ok || !body?.token) {
+    throw new Error(body?.error || 'Incorrect username or password')
+  }
+  setAdminSession(body.token, body.role === 'superadmin' ? 'superadmin' : 'admin')
+}
+
+export async function adminSessionOk(): Promise<boolean> {
+  const token = getAdminToken()
+  if (!token) return false
+  const response = await fetch(apiUrl('/api/admin/session'), {
+    headers: adminHeaders(),
+  })
+  if (response.status === 401) {
+    clearAdminToken()
+    return false
+  }
+  if (!response.ok) return false
+  const body = (await response.json().catch(() => null)) as {
+    role?: AdminRole
+  } | null
+  sessionStorage.setItem(
+    ADMIN_ROLE_KEY,
+    body?.role === 'superadmin' ? 'superadmin' : 'admin',
+  )
+  return true
 }
 
 export function getRegistrations(): Registration[] {
@@ -81,7 +178,7 @@ export async function saveCapacities(
 ): Promise<SportCapacities> {
   const response = await fetch(apiUrl('/api/capacities'), {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: adminHeaders(true),
     body: JSON.stringify(capacities),
   })
   if (!response.ok) {
@@ -95,10 +192,74 @@ export async function saveCapacities(
   return getCapacities()
 }
 
+export async function refreshFees(): Promise<Record<FeeId, number>> {
+  try {
+    const response = await fetch(apiUrl('/api/fees'))
+    if (!response.ok) throw new Error(`Fee load failed (${response.status})`)
+    const data = (await response.json()) as Partial<Record<FeeId, number>>
+    return applyFees(data)
+  } catch (error) {
+    console.error('Could not load fees', error)
+    return getFees()
+  }
+}
+
+export async function saveFees(
+  fees: Record<FeeId, number>,
+): Promise<Record<FeeId, number>> {
+  const response = await fetch(apiUrl('/api/fees'), {
+    method: 'PUT',
+    headers: adminHeaders(true),
+    body: JSON.stringify(fees),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new Error(body?.error || `Save fees failed (${response.status})`)
+  }
+  const data = (await response.json()) as Partial<Record<FeeId, number>>
+  return applyFees(data)
+}
+
+export async function refreshCricketCapacities(): Promise<CricketCapacities> {
+  try {
+    const response = await fetch(apiUrl('/api/cricket-capacities'))
+    if (!response.ok) {
+      throw new Error(`Cricket capacity load failed (${response.status})`)
+    }
+    const data = (await response.json()) as Partial<CricketCapacities>
+    return applyCricketCapacities(data)
+  } catch (error) {
+    console.error('Could not load cricket capacities', error)
+    return getCricketCapacities()
+  }
+}
+
+export async function saveCricketCapacities(
+  capacities: CricketCapacities,
+): Promise<CricketCapacities> {
+  const response = await fetch(apiUrl('/api/cricket-capacities'), {
+    method: 'PUT',
+    headers: adminHeaders(true),
+    body: JSON.stringify(capacities),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new Error(
+      body?.error || `Save cricket capacities failed (${response.status})`,
+    )
+  }
+  const data = (await response.json()) as Partial<CricketCapacities>
+  return applyCricketCapacities(data)
+}
+
 export async function saveAgeLimits(limits: SportAgeLimits): Promise<SportAgeLimits> {
   const response = await fetch(apiUrl('/api/age-limits'), {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: adminHeaders(true),
     body: JSON.stringify(limits),
   })
   if (!response.ok) {
@@ -135,9 +296,35 @@ export async function saveRegistration(
   await refreshRegistrations()
 }
 
+export async function saveCheckout(
+  registrations: Registration[],
+  paymentShot = '',
+): Promise<Registration[]> {
+  const response = await fetch(apiUrl('/api/registrations/checkout'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ registrations, paymentShot }),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new Error(
+      biText(
+        body?.error || `Save failed (${response.status})`,
+        GU.errSaveFailed,
+      ),
+    )
+  }
+  const data = (await response.json()) as Registration[]
+  await refreshRegistrations()
+  return Array.isArray(data) ? data : []
+}
+
 export async function deleteRegistration(id: string): Promise<void> {
   const response = await fetch(apiUrl(`/api/registrations/${encodeURIComponent(id)}`), {
     method: 'DELETE',
+    headers: adminHeaders(),
   })
   if (!response.ok) {
     throw new Error(`Delete failed (${response.status})`)
@@ -152,7 +339,7 @@ export async function updateRegistration(
     apiUrl(`/api/registrations/${encodeURIComponent(registration.id)}`),
     {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: adminHeaders(true),
       body: JSON.stringify(registration),
     },
   )
@@ -170,7 +357,7 @@ export async function updateRegistration(
 export async function bulkDeleteRegistrations(ids: string[]): Promise<number> {
   const response = await fetch(apiUrl('/api/registrations/bulk-delete'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: adminHeaders(true),
     body: JSON.stringify({ ids }),
   })
   if (!response.ok) {
@@ -187,7 +374,7 @@ export async function bulkDeleteRegistrations(ids: string[]): Promise<number> {
 export async function resetRegistrations(): Promise<number> {
   const response = await fetch(apiUrl('/api/registrations/reset'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: adminHeaders(true),
     body: JSON.stringify({ confirm: 'RESET' }),
   })
   if (!response.ok) {
@@ -262,7 +449,7 @@ export function isValidMobile(raw: string): boolean {
 /** Age must be a whole number within that sport's admin-configured min/max. */
 export function ageFieldError(
   raw: string,
-  options: { required?: boolean; sportId?: SportId } = {},
+  options: { required?: boolean; sportId?: SeatSportId } = {},
 ): string | null {
   const required = options.required !== false
   const trimmed = String(raw ?? '').trim()
@@ -284,7 +471,7 @@ export function ageFieldError(
 
 export function parseAge(
   raw: string,
-  sportId?: SportId,
+  sportId?: SeatSportId,
 ): number | undefined {
   if (ageFieldError(raw, { required: true, sportId })) return undefined
   return Number(String(raw).trim())
@@ -301,7 +488,7 @@ export function countSportRegistrations(
   gender: Gender,
 ): number {
   return getRegistrations().reduce((count, reg) => {
-    if (reg.gender !== gender) return count
+    if (!inActiveEvent(reg) || reg.gender !== gender) return count
     for (const s of reg.sports) {
       if (
         s.sportId === sportId &&
@@ -320,7 +507,7 @@ export function countWaitingRegistrations(
   gender: Gender,
 ): number {
   return getRegistrations().reduce((count, reg) => {
-    if (reg.gender !== gender) return count
+    if (!inActiveEvent(reg) || reg.gender !== gender) return count
     for (const s of reg.sports) {
       if (s.sportId === sportId && s.status === 'waiting') {
         count += seatWeight(s.format)
@@ -364,6 +551,7 @@ export function findExistingSportEntryByPlayers(
   if (targets.length === 0) return null
 
   for (const reg of getRegistrations()) {
+    if (!inActiveEvent(reg)) continue
     const entry = reg.sports.find((s) => s.sportId === sportId)
     if (!entry) continue
 
@@ -398,10 +586,33 @@ export function describeSportConflict(
     mobiles.push(sport.player2Mobile)
   }
 
+  if (sport.sportId === 'turf' || sport.sportId === 'overarm') return null
+
   const found = findExistingSportEntryByPlayers(mobiles, sport.sportId)
   if (!found) return null
 
   return formatConflictMessage(found.entry, found.matchedMobile, sportName, found.registration)
+}
+
+/** Same mobile cannot take a second turf seat or a second overarm seat. */
+export function describeCricketConflict(
+  kind: 'turf' | 'overarm',
+  mobile: string,
+): string | null {
+  const target = normalizeMobile(mobile)
+  if (!target) return null
+  for (const reg of getRegistrations()) {
+    if (reg.event !== kind) continue
+    const entry = reg.sports[0]
+    const existing = normalizeMobile(entry?.player1Mobile || reg.mobile)
+    if (existing !== target) continue
+    const label = kind === 'turf' ? 'Turf cricket' : 'Overarm cricket'
+    return biText(
+      `Already registered for ${label}: ${reg.fullName} (${target}).`,
+      `${label} માટે પહેલેથી નોંધાયેલ: ${reg.fullName} (${target}).`,
+    )
+  }
+  return null
 }
 
 /** Message for a single mobile checked on blur (Player 1 / Player 2). */
