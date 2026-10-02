@@ -516,8 +516,29 @@ async function afterTableChange(
 }
 
 function csvEscape(value: string): string {
-  if (/[",\n\r]/.test(value)) return `"${value.replaceAll('"', '""')}"`
-  return value
+  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value
+  if (/[",\n\r]/.test(safe)) return `"${safe.replaceAll('"', '""')}"`
+  return safe
+}
+
+function absoluteUploadUrl(url: string | undefined): string {
+  if (!url) return ''
+  if (/^https?:\/\//i.test(url)) return url
+  if (url.startsWith('/')) return `${window.location.origin}${url}`
+  return url
+}
+
+function skillLabel(skill: string | undefined): string {
+  if (skill === 'batsman') return 'Batsman'
+  if (skill === 'bowler') return 'Bowler'
+  if (skill === 'allrounder') return 'All Rounder'
+  return skill ?? ''
+}
+
+function payModeLabel(mode: Registration['payMode']): string {
+  if (mode === 'online') return 'Online'
+  if (mode === 'cash') return 'Cash'
+  return ''
 }
 
 function downloadCsv(rows: FlatRow[]): void {
@@ -526,18 +547,29 @@ function downloadCsv(rows: FlatRow[]): void {
     'Seat',
     'Event',
     'Sport',
+    'Skill',
     'Full Name',
+    'Father / Spouse',
+    'Grandfather',
+    'Surname',
     'Gender',
     'Format',
     'Mobile',
     'Location',
+    'Birth Date',
     'Player 1 Name',
     'Player 1 Mobile',
     'Player 1 Age',
     'Player 2 Name',
     'Player 2 Mobile',
     'Player 2 Age',
-    'Reference',
+    'Receipt',
+    'Payment Mode',
+    'Paid To',
+    'Amount',
+    'Player Photo URL',
+    'Payment Screenshot URL',
+    'Registration ID',
     'Registered At',
   ]
 
@@ -551,17 +583,28 @@ function downloadCsv(rows: FlatRow[]): void {
         statusLabel(row),
         eventById(r.event).title,
         s ? sportLabel(s.sportId) : '',
+        skillLabel(s?.skill),
         r.fullName,
+        s?.fatherName ?? '',
+        s?.grandfatherName ?? '',
+        s?.surname ?? '',
         genderLabel(r.gender),
         s ? formatLabel(s.format, s.sportId) : '',
         r.mobile,
         r.location,
+        s?.birthDate ?? '',
         s?.player1Name ?? '',
         s?.player1Mobile ?? '',
         s?.player1Age != null ? String(s.player1Age) : '',
         s?.player2Name ?? '',
         s?.player2Mobile ?? '',
         s?.player2Age != null ? String(s.player2Age) : '',
+        r.receiptNo || r.id,
+        payModeLabel(r.payMode),
+        r.paidTo ?? '',
+        r.amount != null ? String(r.amount) : '',
+        absoluteUploadUrl(s?.photoUrl),
+        absoluteUploadUrl(r.paymentShotUrl),
         r.id,
         r.createdAt,
       ]

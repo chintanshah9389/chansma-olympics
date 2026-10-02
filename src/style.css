@@ -3752,15 +3752,15 @@ img.sport-icon {
 
 .progress-item.is-active {
   border-radius: 14px;
-  background: #f4c300 !important;
+  background: var(--tone, var(--navy)) !important;
   box-shadow: none;
 }
 
 .progress-item.is-active .progress-dot {
   animation: progress-pop 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
-  background: #0b1f3a;
-  color: #f4c300;
-  border-color: #0b1f3a;
+  background: #fff;
+  color: var(--tone, var(--navy));
+  border-color: #fff;
   box-shadow: none;
   transform: scale(1.12);
 }
@@ -3768,7 +3768,7 @@ img.sport-icon {
 .progress-item.is-active .progress-label,
 .progress-item.is-active .progress-label .i18n-en,
 .progress-item.is-active .progress-label .i18n-gu {
-  color: #0b1f3a;
+  color: #fff;
   font-weight: 900;
 }
 
