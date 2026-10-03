@@ -782,6 +782,58 @@ function cricketAgeBounds(): { minAge: number; maxAge: number } {
   }
 }
 
+function isCricketClashMessage(message: string): boolean {
+  return (
+    message.includes('Already registered for') ||
+    message.includes('માટે પહેલેથી નોંધાયેલ')
+  )
+}
+
+/** One line per category the player is entering: Turf, Overarm, or both. */
+function cricketMobileClashMessage(mobile: string): string | null {
+  const kinds = [
+    pickTurf ? 'turf' : null,
+    pickOverarm ? 'overarm' : null,
+  ].filter((kind): kind is 'turf' | 'overarm' => kind != null)
+  const lines = kinds
+    .map((kind) => describeCricketConflict(kind, mobile))
+    .filter((line): line is string => Boolean(line))
+  if (!lines.length) return null
+  return lines
+    .map((line) => `<span class="error-line">${bilingualHtml(line)}</span>`)
+    .join('')
+}
+
+function syncCricketMobileClash(): void {
+  const current = cricketErrors.mobile ?? ''
+  if (!isValidMobileLocal(cricketEntry.mobile)) {
+    if (isCricketClashMessage(current)) delete cricketErrors.mobile
+    return
+  }
+  const clash = cricketMobileClashMessage(cricketEntry.mobile)
+  if (clash) cricketErrors.mobile = clash
+  else if (isCricketClashMessage(current)) delete cricketErrors.mobile
+}
+
+function paintCricketMobileClash(input: HTMLInputElement): void {
+  if (!isCricketClashMessage(cricketErrors.mobile ?? '')) {
+    delete cricketErrors.mobile
+  }
+  syncCricketMobileClash()
+  const field = input.closest('.field')
+  if (!field) return
+  const message = cricketErrors.mobile ?? ''
+  const show = isCricketClashMessage(message)
+  field.classList.toggle('is-invalid', show)
+  input.classList.toggle('is-invalid', show)
+  field.querySelector('.error')?.remove()
+  if (!show) return
+  const errorEl = document.createElement('span')
+  errorEl.className = 'error'
+  errorEl.innerHTML = bilingualHtml(message)
+  field.appendChild(errorEl)
+}
+
 function validateCricket(): boolean {
   const player = cricketEntry
   const errors: Partial<Record<CricketField, string>> = {}
@@ -796,6 +848,10 @@ function validateCricket(): boolean {
   }
   const mobileError = mobileFieldError(player.mobile, { required: true })
   if (mobileError) errors.mobile = mobileError
+  else {
+    const clash = cricketMobileClashMessage(player.mobile)
+    if (clash) errors.mobile = clash
+  }
   const bounds = cricketAgeBounds()
   const ageError =
     bounds.minAge > bounds.maxAge
@@ -828,14 +884,6 @@ function validateCricket(): boolean {
   }
   if (!player.area) {
     errors.area = biText("Select the player's area", 'ખેલાડીનો વિસ્તાર પસંદ કરો')
-  }
-  if (pickTurf) {
-    const clash = describeCricketConflict('turf', player.mobile)
-    if (clash) errors.mobile = clash
-  }
-  if (!errors.mobile && pickOverarm) {
-    const clash = describeCricketConflict('overarm', player.mobile)
-    if (clash) errors.mobile = clash
   }
   if (photoBusy) {
     errors.photo = biText('Wait until the photo is ready.', 'ફોટો તૈયાર થાય ત્યાં સુધી રાહ જુઓ.')
@@ -1995,6 +2043,7 @@ function skillPicker(kind: CricketKind, labelEn: string, labelGu: string): strin
 }
 
 function renderCricketForm(): string {
+  syncCricketMobileClash()
   const player = cricketEntry
   const errors = cricketErrors
   const female = cricketGender === 'female'
@@ -2979,6 +3028,10 @@ function bindEvents(): void {
           cricketFieldName === 'birthDate'
         ) {
           player[cricketFieldName] = nextValue
+        }
+        if (cricketFieldName === 'mobile') {
+          paintCricketMobileClash(input)
+          return
         }
         const bag = cricketErrors
         if (bag[cricketFieldName]) {

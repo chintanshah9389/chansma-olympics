@@ -607,9 +607,10 @@ export function describeCricketConflict(
     const existing = normalizeMobile(entry?.player1Mobile || reg.mobile)
     if (existing !== target) continue
     const label = kind === 'turf' ? 'Turf cricket' : 'Overarm cricket'
+    const labelGu = kind === 'turf' ? 'ટર્ફ ક્રિકેટ' : 'ઓવરઆર્મ ક્રિકેટ'
     return biText(
       `Already registered for ${label}: ${reg.fullName} (${target}).`,
-      `${label} માટે પહેલેથી નોંધાયેલ: ${reg.fullName} (${target}).`,
+      `${labelGu} માટે પહેલેથી નોંધાયેલ: ${reg.fullName} (${target}).`,
     )
   }
   return null

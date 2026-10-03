@@ -584,6 +584,14 @@ body::before {
   margin-top: 0.4rem;
 }
 
+.field .error-line {
+  display: block;
+}
+
+.field .error-line + .error-line {
+  margin-top: 0.35rem;
+}
+
 .field.is-invalid label {
   color: var(--danger);
 }
