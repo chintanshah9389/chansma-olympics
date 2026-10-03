@@ -2100,22 +2100,36 @@ function racketDoublesNote(): string {
   )
 }
 
-function disclaimerSport(
-  name: string,
-  sportId: Parameters<typeof getSportAgeLimit>[0],
-  note: string,
+function disclaimerTable(
+  rows: { name: string; sportId: Parameters<typeof getSportAgeLimit>[0]; note: string }[],
+  lastHead: string,
 ): string {
-  const { minAge, maxAge } = getSportAgeLimit(sportId)
-  const price = inr(getFee(sportId))
+  if (!rows.length) return ''
+  const body = rows
+    .map((row) => {
+      const { minAge, maxAge } = getSportAgeLimit(row.sportId)
+      return `<tr>
+        <th scope="row">${row.name}</th>
+        <td>${minAge}–${maxAge}</td>
+        <td>${inr(getFee(row.sportId))}</td>
+        <td>${row.note}</td>
+      </tr>`
+    })
+    .join('')
   return `
-    <article class="disclaimer-sport">
-      <strong class="disclaimer-sport-name">${name}</strong>
-      <ul>
-        <li>${bi(`Age ${minAge} to ${maxAge}`, `ઉંમર ${minAge} થી ${maxAge}`)}</li>
-        <li>${bi(`${price} per player`, `દર ખેલાડી ${price}`)}</li>
-        <li>${note}</li>
-      </ul>
-    </article>`
+    <div class="sport-table-wrap">
+      <table class="sport-table">
+        <thead>
+          <tr>
+            <th scope="col">${bi('Sport', 'રમત')}</th>
+            <th scope="col">${bi('Age', 'ઉંમર')}</th>
+            <th scope="col">${bi('Per player', 'દર ખેલાડી')}</th>
+            <th scope="col">${lastHead}</th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`
 }
 
 function disclaimerHtml(): string {
@@ -2175,13 +2189,18 @@ function disclaimerHtml(): string {
     )
   }
   const indoorNote = (id: SportId): string => {
-    if (id === 'football') return bi('Only for men.', 'ફક્ત પુરુષો માટે.')
-    if (id === 'carrom' || id === 'chess') return bi('Singles only.', 'ફક્ત સિંગલ્સ.')
-    return racketDoublesNote()
+    if (id === 'football') return bi('Men only', 'ફક્ત પુરુષો')
+    if (id === 'carrom' || id === 'chess') return bi('Singles only', 'ફક્ત સિંગલ્સ')
+    return bi('Doubles only', 'ફક્ત ડબલ્સ')
   }
-  const indoorCards = ALL_SPORT_IDS.filter((id) => isSportEnabled(id))
-    .map((id) => disclaimerSport(sportBi(id), id, indoorNote(id)))
-    .join('')
+  const indoorTable = disclaimerTable(
+    ALL_SPORT_IDS.filter((id) => isSportEnabled(id)).map((id) => ({
+      name: sportBi(id),
+      sportId: id,
+      note: indoorNote(id),
+    })),
+    bi('Rule', 'નિયમ'),
+  )
   return `
     <div class="disclaimer" data-lang="${uiLang}" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title">
       <div class="disclaimer-card">
@@ -2247,37 +2266,42 @@ function disclaimerHtml(): string {
 
           ${
             indoorOpen()
-              ? `<h3>${bi('Indoor sports', 'ઇન્ડોર રમતો')}</h3>${indoorCards}`
+              ? `<h3>${bi('Indoor sports', 'ઇન્ડોર રમતો')}</h3>${indoorTable}`
               : ''
           }
 
           ${
             cricketOpen()
               ? `<h3>${bi('Cricket', 'ક્રિકેટ')}</h3>
-          ${
-            isSportEnabled('turf')
-              ? disclaimerSport(
-                  bi(turf.title, turf.titleGu),
-                  'turf',
-                  bi(
-                    `${turf.date} · ${turf.weekday}. Open for men and women.`,
-                    `${turf.dateGu} · ${turf.weekdayGu}. પુરુષો અને મહિલાઓ બંને માટે.`,
-                  ),
-                )
-              : ''
-          }
-          ${
-            isSportEnabled('overarm')
-              ? disclaimerSport(
-                  bi(overarm.title, overarm.titleGu),
-                  'overarm',
-                  bi(
-                    `${overarm.date} · ${overarm.weekday}. Only for men.`,
-                    `${overarm.dateGu} · ${overarm.weekdayGu}. ફક્ત પુરુષો માટે.`,
-                  ),
-                )
-              : ''
-          }`
+          ${disclaimerTable(
+            [
+              ...(isSportEnabled('turf')
+                ? [
+                    {
+                      name: bi(turf.title, turf.titleGu),
+                      sportId: 'turf' as const,
+                      note: bi(
+                        `${turf.date} · ${turf.weekday}<br>Men and women`,
+                        `${turf.dateGu} · ${turf.weekdayGu}<br>પુરુષ અને મહિલા`,
+                      ),
+                    },
+                  ]
+                : []),
+              ...(isSportEnabled('overarm')
+                ? [
+                    {
+                      name: bi(overarm.title, overarm.titleGu),
+                      sportId: 'overarm' as const,
+                      note: bi(
+                        `${overarm.date} · ${overarm.weekday}<br>Men only`,
+                        `${overarm.dateGu} · ${overarm.weekdayGu}<br>ફક્ત પુરુષો`,
+                      ),
+                    },
+                  ]
+                : []),
+            ],
+            bi('When', 'ક્યારે'),
+          )}`
               : ''
           }
 
@@ -2833,6 +2857,14 @@ function registrationCards(sports: ReturnType<typeof buildSelectedSports>): stri
   `
 }
 
+function payCopyButton(value: string): string {
+  return `<button type="button" class="pay-copy" data-action="copy-text" data-copy="${escapeAttr(value)}"><span class="pay-copy-label">${bi('Copy', 'કૉપી')}</span></button>`
+}
+
+function payBankRow(label: string, value: string, copy: boolean): string {
+  return `<div><dt>${label}</dt><dd><strong>${escapeHtml(value)}</strong>${copy ? payCopyButton(value) : ''}</dd></div>`
+}
+
 function renderPay(): string {
   const total = amountDue()
   const showQr = total < QR_LIMIT
@@ -2872,34 +2904,34 @@ function renderPay(): string {
             showQr
               ? `<figure class="pay-qr">
             <img src="/upi-qr.png" alt="Scan to pay ${escapeAttr(BANK.name)}" />
-            <figcaption>${bi('Scan to pay with any UPI app', 'કોઈ પણ UPI એપથી સ્કેન કરીને ચૂકવો')}</figcaption>
           </figure>`
               : `<p class="pay-note">${bi(`QR is shown only when the amount is below ${inr(QR_LIMIT)}. Use UPI or the bank account.`, `QR ફક્ત ${inr(QR_LIMIT)}થી ઓછી રકમ માટે છે. UPI અથવા બેંક એકાઉન્ટ વાપરો.`)}</p>`
           }
-          <div class="pay-block">
-            <p class="pay-kicker">${bi('Or UPI', 'અથવા UPI')}</p>
-            <p class="pay-value">${escapeHtml(UPI_ID)}</p>
-            <button type="button" class="btn btn-ghost btn-small" data-action="copy-text" data-copy="${escapeAttr(UPI_ID)}">${bi('Copy UPI', 'UPI કૉપી')}</button>
-          </div>
-          <div class="pay-block">
-            <p class="pay-kicker">${bi('Or bank transfer', 'અથવા બેંક ટ્રાન્સફર')}</p>
-            <ol class="pay-bank">
-              <li><span>A/c No.</span><strong>${BANK.account}</strong></li>
-              <li><span>IFSC Code</span><strong>${BANK.ifsc}</strong></li>
-              <li><span>Home Branch</span><strong>${escapeHtml(BANK.branch)}</strong></li>
-              <li><span>UPI ID</span><strong>${escapeHtml(UPI_ID)}</strong></li>
-            </ol>
+          <section class="pay-card">
+            <p class="pay-kicker">${bi('UPI', 'UPI')}</p>
+            <div class="pay-copy-row">
+              <p class="pay-value">${escapeHtml(UPI_ID)}</p>
+              ${payCopyButton(UPI_ID)}
+            </div>
+          </section>
+          <section class="pay-card">
+            <p class="pay-kicker">${bi('Bank transfer', 'બેંક ટ્રાન્સફર')}</p>
             <p class="pay-account-name">${escapeHtml(BANK.name)}</p>
-          </div>
-          <div class="field">
-            <label>${bi('Upload payment screenshot', 'ચુકવણીનો સ્ક્રીનશૉટ અપલોડ કરો')}</label>
+            <dl class="pay-bank">
+              ${payBankRow(bi('A/c No.', 'ખાતા નં.'), BANK.account, true)}
+              ${payBankRow(bi('IFSC Code', 'IFSC કોડ'), BANK.ifsc, true)}
+              ${payBankRow(bi('Home Branch', 'બ્રાન્ચ'), BANK.branch, false)}
+            </dl>
+          </section>
+          <label class="pay-upload">
             <input data-payment-shot type="file" accept="image/*" />
+            <span class="pay-upload-title">${bi('Upload payment screenshot', 'ચુકવણીનો સ્ક્રીનશૉટ અપલોડ કરો')}</span>
             ${
               paymentShot
-                ? `<p class="pay-file">${escapeHtml(paymentShotName || 'Screenshot added')}</p><img class="pay-shot" src="${paymentShot}" alt="" />`
-                : `<p class="pay-file">${bi('After payment, add a screenshot and submit.', 'ચુકવણી પછી સ્ક્રીનશૉટ ઉમેરીને સબમિટ કરો.')}</p>`
+                ? `<span class="pay-file">${escapeHtml(paymentShotName || 'Screenshot added')}</span><img class="pay-shot" src="${paymentShot}" alt="" />`
+                : `<span class="pay-file">${bi('After payment, add a screenshot and submit.', 'ચુકવણી પછી સ્ક્રીનશૉટ ઉમેરીને સબમિટ કરો.')}</span>`
             }
-          </div>
+          </label>
         </div>`
           : ''
       }
@@ -3676,8 +3708,14 @@ function bindEvents(): void {
         render()
       } else if (action === 'copy-text' && btn.dataset.copy) {
         const copied = btn.dataset.copy
+        const label = btn.querySelector('.pay-copy-label')
         void navigator.clipboard.writeText(copied).then(() => {
-          btn.textContent = 'Copied!'
+          if (!label) return
+          const previous = label.textContent
+          label.textContent = uiLang === 'gu' ? 'થઈ ગયું' : 'Copied'
+          window.setTimeout(() => {
+            if (label.isConnected) label.textContent = previous
+          }, 1400)
         })
       } else if (action === 'download-receipt') {
         downloadReceipt()
