@@ -4338,3 +4338,133 @@ img.sport-icon {
   display: block;
   line-height: 1.45;
 }
+
+/* Phone wizard: keep every step fully visible instead of crushing it off the card */
+@media (max-width: 720px) {
+  .shell,
+  .panel,
+  .progress-track {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .progress-track {
+    width: 100%;
+    grid-template-columns: repeat(var(--steps, 4), minmax(4.7rem, 1fr)) !important;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 0.7rem 0.4rem 0.75rem;
+  }
+
+  .progress-track::-webkit-scrollbar {
+    display: none;
+  }
+
+  .progress-band {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: 0.06em;
+    font-size: 0.58rem;
+  }
+
+  .progress-band.is-split,
+  .progress-item.is-split {
+    margin-left: 0.2rem;
+  }
+
+  .progress-item.is-active .progress-dot {
+    transform: none;
+    animation: none;
+  }
+
+  .progress-track.is-many .progress-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .step-title .i18n-line {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.12rem;
+  }
+
+  .step-title .i18n-sep {
+    display: none;
+  }
+
+  .success-screen {
+    padding: 0.25rem 0 0;
+  }
+
+  .success-screen h2,
+  .receipt h2 {
+    font-size: 1.55rem;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+
+  .receipt h2 .i18n-line,
+  .receipt-brand .i18n-line {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.12rem;
+  }
+
+  .receipt h2 .i18n-sep,
+  .receipt-brand .i18n-sep {
+    display: none;
+  }
+
+  .receipt {
+    padding: 0.85rem 0.7rem;
+    overflow: visible;
+  }
+
+  .receipt-brand {
+    align-items: flex-start;
+  }
+
+  .receipt-brand > div {
+    min-width: 0;
+  }
+
+  .receipt-paid,
+  .bill-lines li,
+  .entry-line {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .entry-line strong,
+  .receipt-paid strong {
+    margin-left: 0;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .bill-total strong {
+    font-size: 1.6rem;
+  }
+
+  .seat-pill {
+    margin-left: 0;
+    white-space: normal;
+  }
+
+  .pay-bank li {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .pay-bank strong,
+  .pay-value {
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+}

@@ -1438,7 +1438,7 @@ function renderProgress(): string {
     bandStart = i + 2
   }
   return `
-    <ol class="progress-track${wide}" style="grid-template-columns: repeat(${track.length}, minmax(0, 1fr))">
+    <ol class="progress-track${wide}" style="--steps: ${track.length}; grid-template-columns: repeat(${track.length}, minmax(0, 1fr))">
       ${bands.join('')}
       ${track
         .map((phase, i) => {
@@ -2407,20 +2407,104 @@ function renderDone(): string {
   `
 }
 
+function isIosDevice(): boolean {
+  const ua = navigator.userAgent
+  return (
+    /iPad|iPhone|iPod/i.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  )
+}
+
+function isMobileDevice(): boolean {
+  return (
+    window.matchMedia('(max-width: 720px)').matches ||
+    /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+  )
+}
+
+async function captureReceiptCanvas(
+  sheet: HTMLElement,
+): Promise<HTMLCanvasElement> {
+  const { default: html2canvas } = await import('html2canvas-pro')
+  const previousScroll = window.scrollY
+  sheet.scrollIntoView({ block: 'start', behavior: 'auto' })
+  const scale = isMobileDevice() ? 1.5 : 2
+  try {
+    const canvas = await html2canvas(sheet, {
+      backgroundColor: '#ffffff',
+      scale,
+      useCORS: true,
+      scrollX: 0,
+      scrollY: -window.scrollY,
+      windowWidth: Math.max(760, document.documentElement.clientWidth),
+      onclone: (doc) => {
+        const copy = doc.getElementById('receipt-sheet')
+        if (!copy) return
+        copy.style.width = '640px'
+        copy.style.maxWidth = '640px'
+        copy.style.background = '#ffffff'
+        copy.style.overflow = 'visible'
+      },
+    })
+    if (canvas.width < 10 || canvas.height < 10) {
+      throw new Error('Receipt capture was empty')
+    }
+    return canvas
+  } finally {
+    window.scrollTo(0, previousScroll)
+  }
+}
+
+async function savePdfFile(blob: Blob, filename: string): Promise<void> {
+  const file = new File([blob], filename, { type: 'application/pdf' })
+  if (
+    isMobileDevice() &&
+    typeof navigator.share === 'function' &&
+    typeof navigator.canShare === 'function' &&
+    navigator.canShare({ files: [file] })
+  ) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: 'CHANASMA Olympic receipt',
+      })
+      return
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+    }
+  }
+
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
 async function downloadReceipt(): Promise<void> {
-  const button = document.querySelector<HTMLButtonElement>('[data-action="download-receipt"]')
+  const button = document.querySelector<HTMLButtonElement>(
+    '[data-action="download-receipt"]',
+  )
   const sheet = document.getElementById('receipt-sheet')
   const label = button?.innerHTML || ''
   if (!sheet) return
-  if (button) button.disabled = true
+  const iosPreview = isIosDevice() ? window.open('', '_blank') : null
+  if (iosPreview) {
+    iosPreview.document.title = 'CHANASMA Olympic receipt'
+    iosPreview.document.body.innerHTML =
+      '<p style="font-family:sans-serif;padding:24px">Preparing your receipt…</p>'
+  }
+  if (button) {
+    button.disabled = true
+    button.textContent = 'Preparing…'
+  }
   try {
     const { jsPDF } = await import('jspdf')
-    const { default: html2canvas } = await import('html2canvas-pro')
-    const canvas = await html2canvas(sheet, {
-      backgroundColor: '#ffffff',
-      scale: 2,
-      useCORS: true,
-    })
+    const canvas = await captureReceiptCanvas(sheet)
     const image = canvas.toDataURL('image/jpeg', 0.92)
     const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
     const pageWidth = pdf.internal.pageSize.getWidth()
@@ -2433,23 +2517,30 @@ async function downloadReceipt(): Promise<void> {
     let page = 0
     while (drawn < imageHeight - 1) {
       if (page > 0) pdf.addPage()
-      pdf.addImage(image, 'JPEG', margin, margin - drawn, usableWidth, imageHeight)
+      pdf.addImage(
+        image,
+        'JPEG',
+        margin,
+        margin - drawn,
+        usableWidth,
+        imageHeight,
+      )
       drawn += usableHeight
       page += 1
+      if (page > 8) break
     }
     const filename = `${receiptNo || 'chansma-receipt'}.pdf`
     const blob = pdf.output('blob')
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    link.rel = 'noopener'
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 1500)
+    if (iosPreview) {
+      const url = URL.createObjectURL(blob)
+      iosPreview.location.href = url
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } else {
+      await savePdfFile(blob, filename)
+    }
   } catch (error) {
     console.error(error)
+    iosPreview?.close()
     if (button) {
       button.disabled = false
       button.textContent = 'Download failed. Try again.'
@@ -2574,6 +2665,7 @@ function render(): void {
 
   paintedKey = key
   bindEvents()
+  centerActiveStep()
 
   if (phase.id === 'indoor' && phase.indoorStep >= 2) startLiveSlotUpdates()
   else stopLiveSlotUpdates()
@@ -2584,6 +2676,18 @@ function render(): void {
     // Skip preserving scroll when we need to jump to the error
     revealFormErrors()
   }
+}
+
+function centerActiveStep(): void {
+  const track = document.querySelector<HTMLElement>('.progress-track')
+  const active = track?.querySelector<HTMLElement>('.progress-item.is-active')
+  if (!track || !active) return
+  if (track.scrollWidth <= track.clientWidth + 1) return
+  const trackBox = track.getBoundingClientRect()
+  const activeBox = active.getBoundingClientRect()
+  const delta =
+    activeBox.left - trackBox.left - (track.clientWidth - activeBox.width) / 2
+  track.scrollLeft = Math.max(0, track.scrollLeft + delta)
 }
 
 function doublesErrorSignature(): string {
