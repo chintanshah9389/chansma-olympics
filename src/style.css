@@ -1667,6 +1667,14 @@ button.pick-box:hover,
   margin-bottom: 0.75rem;
 }
 
+.format-rule {
+  margin: -0.35rem 0 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--navy);
+}
+
 .format-card h3 {
   margin: 0;
   font-size: 1rem;
@@ -1695,6 +1703,10 @@ button.pick-box:hover,
 .slot-live.is-full {
   background: rgba(180, 35, 24, 0.12);
   color: var(--danger);
+}
+
+.format-card > .organizer-notice {
+  margin: 0 0 0.85rem;
 }
 
 .organizer-notice {
@@ -4555,5 +4567,422 @@ img.sport-icon {
   .pay-value {
     overflow-wrap: anywhere;
     min-width: 0;
+  }
+}
+
+/* First-page rules sheet */
+body.disclaimer-open {
+  overflow: hidden;
+}
+
+.disclaimer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background: rgba(6, 21, 40, 0.62);
+}
+
+.disclaimer-card {
+  width: min(100%, 42rem);
+  height: 100dvh;
+  max-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fff;
+  color: var(--ink, #142033);
+}
+
+.disclaimer-head,
+.disclaimer-foot {
+  flex: 0 0 auto;
+  background: #fff;
+}
+
+.disclaimer-head {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: calc(0.55rem + env(safe-area-inset-top)) 0.75rem 0.7rem;
+  border-bottom: 0;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(90deg, #0085c7, #f4c300, #111, #009f3d, #df0024) border-box;
+  border-bottom: 3px solid transparent;
+}
+
+.disclaimer-brand-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.7rem;
+}
+
+.disclaimer-close {
+  position: static;
+  flex: 0 0 auto;
+  z-index: 1;
+  min-height: 2.15rem;
+  margin-left: auto;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--navy);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.15;
+  cursor: pointer;
+}
+
+.disclaimer-close .i18n-line,
+.disclaimer-foot .i18n-line {
+  display: inline;
+  text-align: center;
+}
+
+.disclaimer-logo {
+  width: 2.2rem;
+  height: 2.2rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+  border-radius: 50%;
+}
+
+.disclaimer-lockup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.disclaimer-wordmark {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.03em;
+  line-height: 0.86;
+  color: var(--navy);
+}
+
+.disclaimer-wordmark span:last-child {
+  margin-top: 0.1rem;
+  color: #df0024;
+  font-size: 0.58em;
+  letter-spacing: 0.28em;
+}
+
+.disclaimer-rings {
+  display: block;
+  width: 2.35rem;
+  height: auto;
+  margin-top: 0.08rem;
+}
+
+.disclaimer-sponsor {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: max-content;
+  margin: 0;
+  padding: 0.22rem 0.45rem;
+  border-radius: 999px;
+  background: var(--navy);
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 0.54rem;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.disclaimer-sponsor strong {
+  color: var(--gold-bright, #f4c300);
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+}
+
+.disclaimer-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.2rem;
+  width: min(100%, 16rem);
+  margin-top: 0.5rem;
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.disclaimer-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--navy);
+  border-radius: 999px;
+  min-height: 2.2rem;
+  padding: 0.3rem 0.6rem;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.disclaimer-tab.is-selected {
+  background: var(--navy);
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(11, 31, 58, 0.18);
+}
+
+.disclaimer[data-lang='en'] .i18n-gu,
+.disclaimer[data-lang='en'] .i18n-sep,
+.disclaimer[data-lang='gu'] .i18n-en,
+.disclaimer[data-lang='gu'] .i18n-sep {
+  display: none;
+}
+
+.disclaimer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.95rem 1rem 1.15rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.disclaimer-body h3 {
+  margin: 0.95rem 0 0.4rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+
+.disclaimer-when {
+  margin: 0 0 0.45rem;
+  font-weight: 800;
+  color: #9a3412;
+}
+
+.disclaimer-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.38rem;
+}
+
+.disclaimer-points li {
+  display: grid;
+  grid-template-columns: 0.55rem 1fr;
+  gap: 0.45rem;
+  align-items: start;
+  margin: 0;
+  padding: 0.42rem 0.55rem;
+  border-radius: 10px;
+  background: #f4f7fb;
+  line-height: 1.35;
+}
+
+.disclaimer-points li::before {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-top: 0.38rem;
+  border-radius: 50%;
+  background: #df0024;
+  box-shadow: 0 0 0 3px rgba(223, 0, 36, 0.12);
+}
+
+.disclaimer-points.is-numbered {
+  counter-reset: disclaimer-point;
+}
+
+.disclaimer-points.is-numbered li {
+  grid-template-columns: 1.35rem 1fr;
+  background: #fff;
+  border: 1px solid #e6ebf2;
+}
+
+.disclaimer-points.is-numbered li::before {
+  counter-increment: disclaimer-point;
+  content: counter(disclaimer-point);
+  width: 1.35rem;
+  height: 1.35rem;
+  margin-top: 0.05rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--navy);
+  color: #fff;
+  box-shadow: none;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.disclaimer-sport {
+  display: grid;
+  grid-template-columns: 7.4rem 1fr;
+  gap: 0.35rem 0.55rem;
+  align-items: center;
+  margin: 0.32rem 0;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid #e6ebf2;
+  border-left: 3px solid #df0024;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.disclaimer-sport-name {
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+@media (max-width: 520px) {
+  .disclaimer-sport {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+}
+
+.disclaimer-sport ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.7rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.disclaimer-sport li {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+.disclaimer-sport li::before {
+  content: "•";
+  margin-right: 0.28rem;
+  color: #df0024;
+  font-weight: 800;
+}
+
+.disclaimer-note {
+  margin-top: 0.85rem;
+  padding: 0.65rem 0.65rem 0.7rem;
+  border-radius: 12px;
+  background: #fff8e8;
+  border: 1px solid #f0d48a;
+}
+
+.disclaimer-note-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9a3412;
+}
+
+.disclaimer-note .disclaimer-points li {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.disclaimer-note .disclaimer-points li::before {
+  background: #d4a017;
+  box-shadow: 0 0 0 3px rgba(212, 160, 23, 0.18);
+}
+
+.disclaimer .i18n-line {
+  display: inline;
+}
+
+.disclaimer .i18n-sep {
+  display: inline-block;
+  margin: 0 0.3em;
+}
+
+.disclaimer-foot {
+  padding: 0.7rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+}
+
+.disclaimer-foot .btn {
+  display: block;
+  width: 100%;
+  margin: 0;
+  min-height: 3.15rem;
+}
+
+@media (min-width: 721px) {
+  .disclaimer {
+    align-items: center;
+    padding: 1.25rem;
+  }
+
+  .disclaimer-card {
+    height: auto;
+    max-height: min(92dvh, 52rem);
+    border-radius: 22px;
+    box-shadow: 0 24px 60px rgba(6, 21, 40, 0.28);
+  }
+
+  .disclaimer-head {
+    border-radius: 22px 22px 0 0;
+  }
+
+  .disclaimer-logo {
+    width: 3.3rem;
+    height: 3.3rem;
+  }
+
+  .disclaimer-wordmark {
+    font-size: 1.35rem;
+  }
+
+  .disclaimer-rings {
+    width: 4.6rem;
+  }
+
+  .disclaimer-sponsor {
+    font-size: 0.68rem;
+    padding: 0.4rem 0.65rem;
+  }
+
+  .disclaimer-sponsor strong {
+    font-size: 0.84rem;
+  }
+
+  .disclaimer-foot {
+    border-radius: 0 0 22px 22px;
+  }
+}
+
+@media print {
+  .disclaimer {
+    display: none !important;
   }
 }

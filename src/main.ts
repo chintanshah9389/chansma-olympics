@@ -48,6 +48,7 @@ import {
   needsFormat,
   needsPlayerDetails,
   needsPlayerDetailsOnly,
+  organizerAssignsPartner,
   sportCapacity,
   sportLabel,
 } from './sports'
@@ -144,6 +145,8 @@ const cricketSkills: Record<CricketKind, PlayerSkill | ''> = {
 let cricketErrors: Partial<Record<CricketField, string>> = {}
 const skillErrors: Partial<Record<CricketKind, string>> = {}
 let beginError = ''
+let showDisclaimer = false
+let disclaimerLang: 'en' | 'gu' = 'en'
 let cricketChoiceError = ''
 let cricketGenderError = ''
 let photoBusy = false
@@ -540,13 +543,13 @@ function validateFormats(): boolean {
   let missingFormat = false
 
   for (const id of sportsNeedingPlayerDetails()) {
+    if (needsPlayerDetailsOnly(id)) {
+      state.formats[id] = 'single'
+    }
+
     if (needsFormat(id) && !state.formats[id]) {
       missingFormat = true
       continue
-    }
-
-    if (needsPlayerDetailsOnly(id)) {
-      state.formats[id] = 'single'
     }
 
     const players = state.doublesPlayers[id]
@@ -900,10 +903,12 @@ function goNext(): void {
   if (phase.id === 'begin') {
     if (!validateBegin()) {
       shouldRevealErrors = true
+      showDisclaimer = false
       render()
       return
     }
-    movePhase(1)
+    showDisclaimer = true
+    render()
     return
   }
 
@@ -1336,6 +1341,7 @@ function clearFormFields(): void {
   cricketSkills.turf = ''
   cricketSkills.overarm = ''
   beginError = ''
+  showDisclaimer = false
   cricketChoiceError = ''
   cricketGenderError = ''
   cricketErrors = {}
@@ -1765,13 +1771,13 @@ function renderPlayerFields(
 function renderStep3(): string {
   const needing = sportsNeedingPlayerDetails()
   const category = state.gender ? genderLabel(state.gender) : ''
-  const hasFormatSports = needing.some(needsFormat)
+  const hasFormatSports = needing.some((id) => needsFormat(id))
   return `
     <div class="fade-step">
       <h2 class="step-title">${hasFormatSports ? bi('Format & player details', GU.formatTitle) : bi('Player details', GU.playerDetailsTitle)}</h2>
       <p class="step-sub">
         ${bi('Full name, mobile and age are required for each sport.', GU.formatSub)}
-        ${hasFormatSports ? bi('For racket sports, also choose Single or Doubles. ', GU.formatSubRacket) : ''}
+        ${hasFormatSports ? bi('If you do not have a second player, choose Single — we will assign your partner. If you have a partner, choose Double. ', GU.formatSubRacket) : ''}
         ${category ? `${bi(`Live ${category} slot counts update instantly.`, `લાઇવ ${category === 'Male' ? GU.men : GU.women} સ્લોટ તરત અપડેટ થાય છે.`)}` : ''}
       </p>
       ${formatError ? `<div class="alert is-error">${bilingualHtml(formatError)}</div>` : ''}
@@ -1798,6 +1804,11 @@ function renderStep3(): string {
             ${slotBadgeHtml(id)}
           </div>
           ${
+            organizerAssignsPartner(id)
+              ? `<p class="format-rule">${racketDoublesNote()}</p>`
+              : ''
+          }
+          ${
             playerOnly
               ? `<p class="step-sub" style="margin:0 0 0.85rem">${bi(`Enter the player full name, mobile and age for ${sportLabel(id)}.`, GU.playerOnlyHint(sportBiText(id)))}</p>`
               : `
@@ -1808,7 +1819,7 @@ function renderStep3(): string {
               <span class="choice-icon-wrap">${iconSingle()}</span>
               <span class="choice-check" aria-hidden="true"></span>
               <span class="choice-title">${bi('Single', GU.single)}</span>
-              <span class="choice-meta">${bi('Organizer assigns partner', GU.singleMeta)}</span>
+              <span class="choice-meta">${bi('No second player — we assign one', GU.singleMeta)}</span>
             </button>
             <button type="button"
               class="choice choice-format ${isDouble ? 'is-selected' : ''}"
@@ -1816,7 +1827,7 @@ function renderStep3(): string {
               <span class="choice-icon-wrap">${iconDouble()}</span>
               <span class="choice-check" aria-hidden="true"></span>
               <span class="choice-title">${bi('Double', GU.double)}</span>
-              <span class="choice-meta">${bi('Choose your partner', GU.doubleMeta)}</span>
+              <span class="choice-meta">${bi('I have a partner', GU.doubleMeta)}</span>
             </button>
           </div>
           `
@@ -1825,7 +1836,7 @@ function renderStep3(): string {
             showPlayers
               ? renderPlayerFields(id, players, errors, {
                   showPlayer2: isDouble && !playerOnly,
-                  showOrganizerNotice: isSingle && !playerOnly,
+                  showOrganizerNotice: isSingle && !playerOnly && organizerAssignsPartner(id),
                 })
               : ''
           }
@@ -1887,6 +1898,192 @@ function cricketField(
       ${errors[field] ? `<span class="error">${bilingualHtml(errors[field]!)}</span>` : ''}
     </div>
   `
+}
+
+function racketDoublesNote(): string {
+  return bi(
+    'Doubles only: only men’s doubles and women’s doubles. No mixed doubles.',
+    'ફક્ત ડબલ્સ: ફક્ત પુરુષ ડબલ્સ અને મહિલા ડબલ્સ. મિક્સ ડબલ્સ નથી.',
+  )
+}
+
+function disclaimerSport(
+  name: string,
+  sportId: Parameters<typeof getSportAgeLimit>[0],
+  note: string,
+): string {
+  const { minAge, maxAge } = getSportAgeLimit(sportId)
+  const price = inr(getFee(sportId))
+  return `
+    <article class="disclaimer-sport">
+      <strong class="disclaimer-sport-name">${name}</strong>
+      <ul>
+        <li>${bi(`Age ${minAge} to ${maxAge}`, `ઉંમર ${minAge} થી ${maxAge}`)}</li>
+        <li>${bi(`${price} per player`, `દર ખેલાડી ${price}`)}</li>
+        <li>${note}</li>
+      </ul>
+    </article>`
+}
+
+function disclaimerHtml(): string {
+  const indoor = eventById('indoor')
+  const turf = eventById('turf')
+  const overarm = eventById('overarm')
+  return `
+    <div class="disclaimer" data-lang="${disclaimerLang}" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title">
+      <div class="disclaimer-card">
+        <header class="disclaimer-head">
+          <div class="disclaimer-brand-row">
+            <img class="disclaimer-logo" src="/chanasma-logo.png" alt="શ્રી ચાણસ્મા જૈન યુવા યુથ" />
+            <div class="disclaimer-lockup">
+              <p class="disclaimer-wordmark" id="disclaimer-title"><span>CHANASMA</span><span>OLYMPIC</span></p>
+              <svg class="disclaimer-rings" viewBox="0 0 168 36" width="168" height="36" aria-hidden="true">
+                <g fill="none" stroke-width="3.2">
+                  <circle cx="16" cy="18" r="12" stroke="#0085c7" />
+                  <circle cx="46" cy="18" r="12" stroke="#f4c300" />
+                  <circle cx="76" cy="18" r="12" stroke="#111111" />
+                  <circle cx="106" cy="18" r="12" stroke="#009f3d" />
+                  <circle cx="136" cy="18" r="12" stroke="#df0024" />
+                </g>
+              </svg>
+            </div>
+            <p class="disclaimer-sponsor">
+              <span>${bi('Main sponsor · Event partner', 'મુખ્ય પ્રાયોજક · ઇવેન્ટ પાર્ટનર')}</span>
+              <strong>${bi('Jarin Bhai', 'જરીન ભાઈ')}</strong>
+            </p>
+            <button type="button" class="disclaimer-close" data-action="close-disclaimer" aria-label="Close">${bi('Close', 'બંધ કરો')}</button>
+          </div>
+          <div class="disclaimer-tabs" role="tablist" aria-label="Language">
+            <button type="button" role="tab" class="disclaimer-tab ${disclaimerLang === 'en' ? 'is-selected' : ''}" data-action="disclaimer-lang" data-lang="en" aria-selected="${disclaimerLang === 'en'}">English</button>
+            <button type="button" role="tab" class="disclaimer-tab ${disclaimerLang === 'gu' ? 'is-selected' : ''}" data-action="disclaimer-lang" data-lang="gu" aria-selected="${disclaimerLang === 'gu'}">ગુજરાતી</button>
+          </div>
+        </header>
+        <div class="disclaimer-body">
+          <ul class="disclaimer-points">
+            <li>${bi(
+              'Shree Chanasma Jain Yuva Group warmly welcomes you to Chanasma Olympic.',
+              'શ્રી ચાણસ્મા જૈન યુવા ગ્રુપ આપનું ચાણસ્મા ઓલિમ્પિકમાં હાર્દિક સ્વાગત કરે છે.',
+            )}</li>
+            <li>${bi(
+              'Heartfelt thanks to our main event partner and main sponsor, Jarin Bhai.',
+              'અમારા મુખ્ય ઇવેન્ટ પાર્ટનર અને મુખ્ય પ્રાયોજક જરીન ભાઈનો ખૂબ ખૂબ આભાર.',
+            )}</li>
+            <li>${bi(
+              'These sports are to be played together, and to bring everyone closer.',
+              'આ ઓલિમ્પિકની રમતો સાથે મળીને રમવાની છે અને એકબીજાને જોડવાની છે.',
+            )}</li>
+          </ul>
+
+          <h3>${bi('Registration rules', 'નોંધણીના નિયમો')}</h3>
+          <p class="disclaimer-when">${bi(
+            `${indoor.date} · ${indoor.weekday} · 4:00 PM to 11:00 PM`,
+            `${indoor.dateGu} · ${indoor.weekdayGu} · સાંજે 4 વાગ્યાથી રાત્રે 11 વાગ્યા સુધી`,
+          )}</p>
+          <ol class="disclaimer-points is-numbered">
+            <li>${bi(
+              'From Pickleball and Football, choose only one sport.',
+              'પિકલબોલ અને ફૂટબોલમાંથી કોઈ પણ એક જ રમત પસંદ કરવાની રહેશે.',
+            )}</li>
+            <li>${bi(
+              'From Badminton, Chess, Carrom and Table Tennis, choose any two sports.',
+              'બેડમિન્ટન, ચેસ, કેરમ અને ટેબલ ટેનિસમાંથી કોઈ પણ બે રમતો પસંદ કરી શકાશે.',
+            )}</li>
+            <li>${bi(
+              'Pickleball, Badminton and Table Tennis are played with doubles only: only men’s doubles and women’s doubles. No mixed doubles.',
+              'પિકલબોલ, બેડમિન્ટન અને ટેબલ ટેનિસ ફક્ત ડબલ્સમાં રમાશે: ફક્ત પુરુષ ડબલ્સ અને મહિલા ડબલ્સ. મિક્સ ડબલ્સ નથી.',
+            )}</li>
+            <li>${bi(
+              'Table Tennis, Badminton and Pickleball: if you do not have a second player, we will provide one. Please fill the form. Please wait for our response. You cannot choose the partner — you play with the partner the organizer assigns.',
+              'ટેબલ ટેનિસ, બેડમિન્ટન અને પિકલબોલ: જો બીજો ખેલાડી ન હોય, તો અમે આપીશું. કૃપા કરીને ફોર્મ ભરો. કૃપા કરીને અમારા જવાબની રાહ જુઓ. તમે પાર્ટનર પસંદ કરી શકતા નથી — આયોજક જે પાર્ટનર આપે તેની સાથે રમવું પડશે.',
+            )}</li>
+            <li>${bi(
+              'If you already have a partner, choose Double and enter their details.',
+              'પાર્ટનર હોય તો ડબલ પસંદ કરીને વિગત દાખલ કરો.',
+            )}</li>
+          </ol>
+
+          <h3>${bi('Indoor sports', 'ઇન્ડોર રમતો')}</h3>
+
+          ${disclaimerSport(
+            sportBi('football'),
+            'football',
+            bi('Only for men.', 'ફક્ત પુરુષો માટે.'),
+          )}
+          ${disclaimerSport(
+            sportBi('pickleball'),
+            'pickleball',
+            racketDoublesNote(),
+          )}
+          ${disclaimerSport(
+            sportBi('carrom'),
+            'carrom',
+            bi('No mixed doubles.', 'મિક્સ ડબલ્સ નથી.'),
+          )}
+          ${disclaimerSport(
+            sportBi('chess'),
+            'chess',
+            bi('No mixed doubles.', 'મિક્સ ડબલ્સ નથી.'),
+          )}
+          ${disclaimerSport(
+            sportBi('tt'),
+            'tt',
+            racketDoublesNote(),
+          )}
+          ${disclaimerSport(
+            sportBi('badminton'),
+            'badminton',
+            racketDoublesNote(),
+          )}
+
+          <h3>${bi('Cricket', 'ક્રિકેટ')}</h3>
+          ${disclaimerSport(
+            bi(turf.title, turf.titleGu),
+            'turf',
+            bi(
+              `${turf.date} · ${turf.weekday}. Open for men and women.`,
+              `${turf.dateGu} · ${turf.weekdayGu}. પુરુષો અને મહિલાઓ બંને માટે.`,
+            ),
+          )}
+          ${disclaimerSport(
+            bi(overarm.title, overarm.titleGu),
+            'overarm',
+            bi(
+              `${overarm.date} · ${overarm.weekday}. Only for men.`,
+              `${overarm.dateGu} · ${overarm.weekdayGu}. ફક્ત પુરુષો માટે.`,
+            ),
+          )}
+
+          <div class="disclaimer-note">
+            <p class="disclaimer-note-title">${bi('Please note', 'નોંધ')}</p>
+            <ul class="disclaimer-points">
+              <li>${bi(
+                'No fee is refundable once a seat is confirmed.',
+                'સીટ કન્ફર્મ થયા પછી કોઈ પણ રકમ પાછી મળશે નહીં.',
+              )}</li>
+              <li>${bi(
+                'A waiting seat that is not confirmed can be refunded.',
+                'વેઇટિંગની સીટ કન્ફર્મ ન થાય તો તે રકમ પાછી મળશે.',
+              )}</li>
+              <li>${bi(
+                'The committee may change a rule if the situation requires it.',
+                'સમિતિ પરિસ્થિતિ મુજબ કોઈ પણ નિયમ બદલી શકે છે.',
+              )}</li>
+            </ul>
+          </div>
+        </div>
+        <footer class="disclaimer-foot">
+          <button type="button" class="btn btn-gold" data-action="begin-form">${bi("Let's Begin", 'ચાલો શરૂ કરીએ')}</button>
+        </footer>
+      </div>
+    </div>`
+}
+
+function mountDisclaimer(): void {
+  app.querySelector('.disclaimer')?.remove()
+  const open = showDisclaimer && currentPhase().id === 'begin'
+  document.body.classList.toggle('disclaimer-open', open)
+  if (!open) return
+  app.insertAdjacentHTML('beforeend', disclaimerHtml())
 }
 
 function renderBegin(): string {
@@ -2161,9 +2358,11 @@ function indoorEntryCard(sport: SelectedSport, showSlots = false): string {
   const format =
     sport.sportId === 'football'
       ? bi('Team', 'ટીમ')
-      : sport.format === 'double'
-        ? bi('Doubles', 'ડબલ્સ')
-        : bi('Singles', 'સિંગલ્સ')
+      : organizerAssignsPartner(sport.sportId) && sport.format !== 'double'
+        ? bi('Partner assigned by organizer', 'પાર્ટનર આયોજક આપશે')
+        : sport.format === 'double'
+          ? bi('Doubles', 'ડબલ્સ')
+          : bi('Singles', 'સિંગલ્સ')
   const people =
     sport.format === 'double'
       ? `${playerLine('Player 1', 'ખેલાડી ૧', sport.player1Name, sport.player1Mobile, sport.player1Age)}${playerLine('Player 2', 'ખેલાડી ૨', sport.player2Name, sport.player2Mobile, sport.player2Age)}`
@@ -2818,8 +3017,12 @@ function render(): void {
   }
 
   paintedKey = key
+  mountDisclaimer()
   bindEvents()
   centerActiveStep()
+  if (showDisclaimer) {
+    app.querySelector<HTMLButtonElement>('[data-action="begin-form"]')?.focus()
+  }
 
   if (phase.id === 'indoor' && phase.indoorStep >= 2) startLiveSlotUpdates()
   else stopLiveSlotUpdates()
@@ -3139,6 +3342,22 @@ function bindEvents(): void {
         downloadReceipt()
       } else if (action === 'print') {
         window.print()
+      } else if (action === 'disclaimer-lang' && (btn.dataset.lang === 'en' || btn.dataset.lang === 'gu')) {
+        disclaimerLang = btn.dataset.lang
+        const sheet = app.querySelector<HTMLElement>('.disclaimer')
+        if (!sheet) return
+        sheet.dataset.lang = disclaimerLang
+        sheet.querySelectorAll<HTMLButtonElement>('[data-action="disclaimer-lang"]').forEach((tab) => {
+          const on = tab.dataset.lang === disclaimerLang
+          tab.classList.toggle('is-selected', on)
+          tab.setAttribute('aria-selected', on ? 'true' : 'false')
+        })
+      } else if (action === 'close-disclaimer') {
+        showDisclaimer = false
+        render()
+      } else if (action === 'begin-form') {
+        showDisclaimer = false
+        movePhase(1)
       } else if (action === 'next') goNext()
       else if (action === 'back') goBack()
       else if (action === 'submit' && !submitBusy) submit()

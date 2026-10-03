@@ -693,6 +693,17 @@ function formatConflictMessage(
     )
   }
 
+  if (
+    entry.sportId === 'tt' ||
+    entry.sportId === 'badminton' ||
+    entry.sportId === 'pickleball'
+  ) {
+    return biText(
+      `Already registered: ${userName} for ${sportName}${genderTagEn}. The organizer assigns the partner.`,
+      `${GU.conflictFootball(userName, sportGu, genderTagGu)} પાર્ટનર આયોજક આપશે.`,
+    )
+  }
+
   return biText(
     `Already registered: ${userName} for ${sportName} as Singles${genderTagEn}.`,
     GU.conflictSingles(userName, sportGu, genderTagGu),

@@ -107,6 +107,11 @@ export function needsFormat(id: SportId): boolean {
   return SPORTS[id].needsFormat
 }
 
+/** Single for these sports means the organizer assigns the second player. */
+export function organizerAssignsPartner(id: SportId): boolean {
+  return id === 'tt' || id === 'badminton' || id === 'pickleball'
+}
+
 /** Singles/team sports that still require player name + mobile (no Single/Double UI) */
 export function needsPlayerDetailsOnly(id: SportId): boolean {
   return id === 'football' || id === 'carrom' || id === 'chess'

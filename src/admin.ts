@@ -187,6 +187,12 @@ function formatLabel(
   sportId: SelectedSport['sportId'],
 ): string {
   if (sportId === 'football' || sportId === 'turf' || sportId === 'overarm') return 'Team'
+  if (
+    (sportId === 'tt' || sportId === 'badminton' || sportId === 'pickleball') &&
+    format !== 'double'
+  ) {
+    return 'Organizer assigns partner'
+  }
   if (format === 'double') return 'Doubles'
   return 'Singles'
 }
