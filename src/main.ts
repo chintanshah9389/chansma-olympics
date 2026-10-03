@@ -132,12 +132,10 @@ function applyUiLang(): void {
 
 function langTabsHtml(): string {
   return `
-    <div class="lang-bar">
       <div class="lang-tabs" role="tablist" aria-label="Language">
         <button type="button" role="tab" class="lang-tab ${uiLang === 'en' ? 'is-selected' : ''}" data-action="ui-lang" data-lang="en" aria-selected="${uiLang === 'en'}">English</button>
         <button type="button" role="tab" class="lang-tab ${uiLang === 'gu' ? 'is-selected' : ''}" data-action="ui-lang" data-lang="gu" aria-selected="${uiLang === 'gu'}">ગુજરાતી</button>
-      </div>
-    </div>`
+      </div>`
 }
 
 function sportBi(id: SportId): string {
@@ -193,6 +191,7 @@ const skillErrors: Partial<Record<CricketKind, string>> = {}
 let beginError = ''
 let showDisclaimer = false
 let uiLang: 'en' | 'gu' = readUiLang()
+const foldState = new Map<string, boolean>()
 let cricketChoiceError = ''
 let cricketGenderError = ''
 let photoBusy = false
@@ -1362,6 +1361,7 @@ function submit(): void {
 }
 
 function clearFormFields(): void {
+  foldState.clear()
   state.fullName = ''
   state.mobile = ''
   state.location = ''
@@ -1591,14 +1591,16 @@ function renderChoice(
       data-sport="${id}"
     >
       <span class="choice-icon-wrap">${sportIcon(id)}</span>
+      <span class="choice-copy">
+        <span class="choice-title">${sportBi(id)}</span>
+        ${
+          singlesOnlySport(id)
+            ? `<span class="choice-rule">${bi('Singles only', 'ફક્ત સિંગલ્સ')}</span>`
+            : ''
+        }
+        <span class="${metaClass}" data-slot-sport="${id}">${meta}</span>
+      </span>
       <span class="choice-check" aria-hidden="true"></span>
-      <span class="choice-title">${sportBi(id)}</span>
-      ${
-        singlesOnlySport(id)
-          ? `<span class="choice-rule">${bi('Singles only', 'ફક્ત સિંગલ્સ')}</span>`
-          : ''
-      }
-      <span class="${metaClass}" data-slot-sport="${id}">${meta}</span>
     </button>
   `
 }
@@ -1660,17 +1662,21 @@ function renderStep2(): string {
           class="choice choice-gender ${state.gender === 'male' ? 'is-selected' : ''}"
           data-action="gender" data-gender="male">
           <span class="choice-icon-wrap">${iconMale()}</span>
+          <span class="choice-copy">
+            <span class="choice-title">${bi('Male', GU.male)}</span>
+            <span class="choice-meta">${bi('Men’s tournament', GU.maleMeta)}</span>
+          </span>
           <span class="choice-check" aria-hidden="true"></span>
-          <span class="choice-title">${bi('Male', GU.male)}</span>
-          <span class="choice-meta">${bi('Men’s tournament', GU.maleMeta)}</span>
         </button>
         <button type="button"
           class="choice choice-gender ${state.gender === 'female' ? 'is-selected' : ''}"
           data-action="gender" data-gender="female">
           <span class="choice-icon-wrap">${iconFemale()}</span>
+          <span class="choice-copy">
+            <span class="choice-title">${bi('Female', GU.female)}</span>
+            <span class="choice-meta">${bi('Women’s tournament', GU.femaleMeta)}</span>
+          </span>
           <span class="choice-check" aria-hidden="true"></span>
-          <span class="choice-title">${bi('Female', GU.female)}</span>
-          <span class="choice-meta">${bi('Women’s tournament', GU.femaleMeta)}</span>
         </button>
       </div>
 
@@ -1819,6 +1825,33 @@ function renderPlayerFields(
   `
 }
 
+function foldOpen(key: string, fallback: boolean, force = false): boolean {
+  if (force) {
+    foldState.set(key, true)
+    return true
+  }
+  const stored = foldState.get(key)
+  return stored === undefined ? fallback : stored
+}
+
+function foldPanel(
+  key: string,
+  summary: string,
+  body: string,
+  open: boolean,
+  className = '',
+  sportId = '',
+): string {
+  const sportAttr = sportId
+    ? ` data-sport="${escapeAttr(sportId)}" data-sport-card="${escapeAttr(sportId)}"`
+    : ''
+  return `
+    <details class="fold ${className}" data-fold="${escapeAttr(key)}"${sportAttr} ${open ? 'open' : ''}>
+      <summary class="fold-summary">${summary}</summary>
+      <div class="fold-body">${body}</div>
+    </details>`
+}
+
 function renderStep3(): string {
   const needing = sportsNeedingPlayerDetails()
   const category = state.gender ? genderLabel(state.gender) : ''
@@ -1834,7 +1867,7 @@ function renderStep3(): string {
       ${formatError ? `<div class="alert is-error">${bilingualHtml(formatError)}</div>` : ''}
 
       ${needing
-        .map((id) => {
+        .map((id, index) => {
           const playerOnly = needsPlayerDetailsOnly(id)
           const format = playerOnly ? 'single' : state.formats[id]
           const isSingle = format === 'single'
@@ -1848,53 +1881,68 @@ function renderStep3(): string {
           const missingFormat = needsFormat(id) && !format && Boolean(formatError)
           const cardInvalid =
             Boolean(errors.player1 || errors.player2) || missingFormat
-          return `
-        <div class="format-card ${isSingle || playerOnly ? 'is-single-mode' : ''} ${cardInvalid ? 'is-invalid' : ''}" data-sport-card="${id}">
-          <div class="format-card-header">
-            <h3><span class="sport-heading">${sportIcon(id)} ${sportBi(id)}</span></h3>
+          const status = singlesOnlySport(id)
+            ? bi('Singles only', 'ફક્ત સિંગલ્સ')
+            : playerOnly
+              ? bi('Team', 'ટીમ')
+              : isDouble
+                ? bi('Double', GU.double)
+                : isSingle
+                  ? bi('Single', GU.single)
+                  : bi('Choose format', 'ફોર્મેટ પસંદ કરો')
+          const body = `
             ${slotBadgeHtml(id)}
-          </div>
-          ${
-            organizerAssignsPartner(id)
-              ? `<p class="format-rule">${racketDoublesNote()}</p>`
-              : singlesOnlySport(id)
-                ? `<p class="format-rule">${bi('Singles only.', 'ફક્ત સિંગલ્સ.')}</p>`
+            ${
+              organizerAssignsPartner(id)
+                ? `<p class="format-rule">${racketDoublesNote()}</p>`
+                : singlesOnlySport(id)
+                  ? `<p class="format-rule">${bi('Singles only.', 'ફક્ત સિંગલ્સ.')}</p>`
+                  : ''
+            }
+            ${
+              playerOnly
+                ? `<p class="step-sub" style="margin:0 0 0.85rem">${bi(`Enter the player full name, mobile and age for ${sportLabel(id)}.`, GU.playerOnlyHint(sportBiText(id)))}</p>`
+                : `
+            <div class="format-options ${missingFormat ? 'is-invalid' : ''}">
+              <button type="button"
+                class="choice choice-format ${isSingle ? 'is-selected' : ''}"
+                data-action="format" data-sport="${id}" data-format="single">
+                <span class="choice-icon-wrap">${iconSingle()}</span>
+                <span class="choice-copy">
+                  <span class="choice-title">${bi('Single', GU.single)}</span>
+                  <span class="choice-meta">${bi('No second player — we assign one', GU.singleMeta)}</span>
+                </span>
+                <span class="choice-check" aria-hidden="true"></span>
+              </button>
+              <button type="button"
+                class="choice choice-format ${isDouble ? 'is-selected' : ''}"
+                data-action="format" data-sport="${id}" data-format="double">
+                <span class="choice-icon-wrap">${iconDouble()}</span>
+                <span class="choice-copy">
+                  <span class="choice-title">${bi('Double', GU.double)}</span>
+                  <span class="choice-meta">${bi('I have a partner', GU.doubleMeta)}</span>
+                </span>
+                <span class="choice-check" aria-hidden="true"></span>
+              </button>
+            </div>
+            `
+            }
+            ${
+              showPlayers
+                ? renderPlayerFields(id, players, errors, {
+                    showPlayer2: isDouble && !playerOnly,
+                    showOrganizerNotice: isSingle && !playerOnly && organizerAssignsPartner(id),
+                  })
                 : ''
-          }
-          ${
-            playerOnly
-              ? `<p class="step-sub" style="margin:0 0 0.85rem">${bi(`Enter the player full name, mobile and age for ${sportLabel(id)}.`, GU.playerOnlyHint(sportBiText(id)))}</p>`
-              : `
-          <div class="format-options ${missingFormat ? 'is-invalid' : ''}">
-            <button type="button"
-              class="choice choice-format ${isSingle ? 'is-selected' : ''}"
-              data-action="format" data-sport="${id}" data-format="single">
-              <span class="choice-icon-wrap">${iconSingle()}</span>
-              <span class="choice-check" aria-hidden="true"></span>
-              <span class="choice-title">${bi('Single', GU.single)}</span>
-              <span class="choice-meta">${bi('No second player — we assign one', GU.singleMeta)}</span>
-            </button>
-            <button type="button"
-              class="choice choice-format ${isDouble ? 'is-selected' : ''}"
-              data-action="format" data-sport="${id}" data-format="double">
-              <span class="choice-icon-wrap">${iconDouble()}</span>
-              <span class="choice-check" aria-hidden="true"></span>
-              <span class="choice-title">${bi('Double', GU.double)}</span>
-              <span class="choice-meta">${bi('I have a partner', GU.doubleMeta)}</span>
-            </button>
-          </div>
-          `
-          }
-          ${
-            showPlayers
-              ? renderPlayerFields(id, players, errors, {
-                  showPlayer2: isDouble && !playerOnly,
-                  showOrganizerNotice: isSingle && !playerOnly && organizerAssignsPartner(id),
-                })
-              : ''
-          }
-        </div>
-      `
+            }`
+          return foldPanel(
+            `format:${id}`,
+            `<span class="sport-heading">${sportIcon(id)} ${sportBi(id)}</span><span class="fold-status">${status}</span>`,
+            body,
+            foldOpen(`format:${id}`, index === 0, cardInvalid),
+            `format-card ${isSingle || playerOnly ? 'is-single-mode' : ''} ${cardInvalid ? 'is-invalid' : ''}`,
+            id,
+          )
         })
         .join('')}
 
@@ -1918,8 +1966,8 @@ function renderStep4(): string {
       ${submitError || !check.ok ? `<div class="alert is-error">${bilingualHtml(submitError || check.message)}</div>` : ''}
 
       <div class="entry-list">
-        ${sports.map((sport) => indoorEntryCard(sport, true)).join('')}
-        ${cricketReviewCard()}
+        ${sports.map((sport, index) => indoorEntryCard(sport, true, { key: `review:${sport.sportId}`, open: index === 0 })).join('')}
+        ${cricketReviewCard({ key: 'review:cricket', open: sports.length === 0 })}
       </div>
 
       <div class="actions">
@@ -2204,16 +2252,20 @@ function renderCricketGender(): string {
       <div class="choice-grid ${cricketGenderError ? 'is-invalid' : ''}">
         <button type="button" class="choice choice-gender ${cricketGender === 'male' ? 'is-selected' : ''}" data-action="cricket-gender" data-gender="male">
           <span class="choice-icon-wrap">${iconMale()}</span>
+          <span class="choice-copy">
+            <span class="choice-title">${bi('Male', GU.male)}</span>
+            ${namedCricketSlot('turf', 'male')}
+            ${namedCricketSlot('overarm', 'male')}
+          </span>
           <span class="choice-check" aria-hidden="true"></span>
-          <span class="choice-title">${bi('Male', GU.male)}</span>
-          ${namedCricketSlot('turf', 'male')}
-          ${namedCricketSlot('overarm', 'male')}
         </button>
         <button type="button" class="choice choice-gender ${cricketGender === 'female' ? 'is-selected' : ''}" data-action="cricket-gender" data-gender="female">
           <span class="choice-icon-wrap">${iconFemale()}</span>
+          <span class="choice-copy">
+            <span class="choice-title">${bi('Female', GU.female)}</span>
+            ${namedCricketSlot('turf', 'female')}
+          </span>
           <span class="choice-check" aria-hidden="true"></span>
-          <span class="choice-title">${bi('Female', GU.female)}</span>
-          ${namedCricketSlot('turf', 'female')}
         </button>
       </div>
       <div class="actions">
@@ -2341,45 +2393,69 @@ function renderCricketForm(): string {
         ${pickTurf ? namedCricketSlot('turf', female ? 'female' : 'male') : ''}
         ${pickOverarm ? namedCricketSlot('overarm', 'male') : ''}
       </div>
-      ${text('firstName', "Player's first name", 'ખેલાડીનું પ્રથમ નામ')}
-      ${text('fatherName', 'Father/Spouse name', 'પિતા / પતિ-પત્નીનું નામ')}
-      ${text('grandfatherName', 'Grandfather name', 'દાદાનું નામ')}
-      ${text('surname', 'Surname', 'અટક')}
-      ${text('mobile', 'Mobile number', GU.mobile, 'tel')}
-      ${text('age', 'Age', GU.age, 'text')}
-      ${skills}
-      ${cricketField(
-        'birthDate',
-        'Birth date',
-        'જન્મ તારીખ',
-        `<input data-cricket="player" data-field="birthDate" type="date" value="${escapeAttr(player.birthDate)}" />`,
+      ${foldPanel(
+        'cricket:name',
+        `<span class="fold-title">${bi('Name and mobile', 'નામ અને મોબાઇલ')}</span>`,
+        `
+        ${text('firstName', "Player's first name", 'ખેલાડીનું પ્રથમ નામ')}
+        ${text('fatherName', 'Father/Spouse name', 'પિતા / પતિ-પત્નીનું નામ')}
+        ${text('grandfatherName', 'Grandfather name', 'દાદાનું નામ')}
+        ${text('surname', 'Surname', 'અટક')}
+        ${text('mobile', 'Mobile number', GU.mobile, 'tel')}
+        ${text('age', 'Age', GU.age, 'text')}
+        `,
+        foldOpen(
+          'cricket:name',
+          true,
+          Boolean(errors.firstName || errors.fatherName || errors.grandfatherName || errors.surname || errors.mobile || errors.age),
+        ),
+        'form-fold',
       )}
-      ${cricketField(
-        'area',
-        "Player's area",
-        'ખેલાડીનો વિસ્તાર',
-        `<select data-cricket="player" data-field="area">
-          <option value="">${escapeAttr(ui('Select area', 'વિસ્તાર પસંદ કરો'))}</option>
-          ${PLAYER_AREAS.map(
-            (area) =>
-              `<option value="${escapeAttr(area)}" ${player.area === area ? 'selected' : ''}>${escapeHtml(area)}</option>`,
-          ).join('')}
-        </select>`,
+      ${foldPanel(
+        'cricket:more',
+        `<span class="fold-title">${bi('Skill, birth date, area and photo', 'કુશળતા, જન્મ તારીખ, વિસ્તાર અને ફોટો')}</span>`,
+        `
+        ${skills}
+        ${cricketField(
+          'birthDate',
+          'Birth date',
+          'જન્મ તારીખ',
+          `<input data-cricket="player" data-field="birthDate" type="date" value="${escapeAttr(player.birthDate)}" />`,
+        )}
+        ${cricketField(
+          'area',
+          "Player's area",
+          'ખેલાડીનો વિસ્તાર',
+          `<select data-cricket="player" data-field="area">
+            <option value="">${escapeAttr(ui('Select area', 'વિસ્તાર પસંદ કરો'))}</option>
+            ${PLAYER_AREAS.map(
+              (area) =>
+                `<option value="${escapeAttr(area)}" ${player.area === area ? 'selected' : ''}>${escapeHtml(area)}</option>`,
+            ).join('')}
+          </select>`,
+        )}
+        <div class="field${errors.photo ? ' is-invalid' : ''}">
+          <label>${bi("Player's photo", 'ખેલાડીનો ફોટો')} ${req()}</label>
+          <p class="section-hint">${bi('JPG or PNG. We optimize it to stay within 3 MB.', 'JPG અથવા PNG. અમે તેને ૩ MBની અંદર લાવીએ છીએ.')}</p>
+          <label class="btn btn-ghost photo-pick">
+            ${withIcon(iconCamera(), photoBusy ? bi('Optimizing…', 'ઓપ્ટિમાઇઝ થઈ રહ્યું છે…') : bi('Upload photo', 'ફોટો અપલોડ કરો'))}
+            <input type="file" accept="image/*" data-cricket-photo="player" ${photoBusy ? 'disabled' : ''} />
+          </label>
+          ${
+            player.photoUrl
+              ? `<div class="photo-preview"><img src="${player.photoUrl}" alt="" /><span>${escapeHtml(player.photoName)}</span></div>`
+              : ''
+          }
+          ${errors.photo ? `<span class="error">${bilingualHtml(errors.photo)}</span>` : ''}
+        </div>
+        `,
+        foldOpen(
+          'cricket:more',
+          false,
+          Boolean(errors.birthDate || errors.area || errors.photo || skillErrors.turf || skillErrors.overarm),
+        ),
+        'form-fold',
       )}
-      <div class="field${errors.photo ? ' is-invalid' : ''}">
-        <label>${bi("Player's photo", 'ખેલાડીનો ફોટો')} ${req()}</label>
-        <p class="section-hint">${bi('JPG or PNG. We optimize it to stay within 3 MB.', 'JPG અથવા PNG. અમે તેને ૩ MBની અંદર લાવીએ છીએ.')}</p>
-        <label class="btn btn-ghost photo-pick">
-          ${withIcon(iconCamera(), photoBusy ? bi('Optimizing…', 'ઓપ્ટિમાઇઝ થઈ રહ્યું છે…') : bi('Upload photo', 'ફોટો અપલોડ કરો'))}
-          <input type="file" accept="image/*" data-cricket-photo="player" ${photoBusy ? 'disabled' : ''} />
-        </label>
-        ${
-          player.photoUrl
-            ? `<div class="photo-preview"><img src="${player.photoUrl}" alt="" /><span>${escapeHtml(player.photoName)}</span></div>`
-            : ''
-        }
-        ${errors.photo ? `<span class="error">${bilingualHtml(errors.photo)}</span>` : ''}
-      </div>
       <div class="actions">
         <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
         <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
@@ -2405,7 +2481,11 @@ function playerLine(
   return `<p class="entry-line"><span>${bi(labelEn, labelGu)}</span><strong>${escapeHtml(bits.join(' · '))}</strong></p>`
 }
 
-function indoorEntryCard(sport: SelectedSport, showSlots = false): string {
+function indoorEntryCard(
+  sport: SelectedSport,
+  showSlots = false,
+  fold?: { key: string; open: boolean },
+): string {
   if (sport.sportId === 'turf' || sport.sportId === 'overarm') return ''
   const existing = describeSportConflict(sport, sportLabel(sport.sportId), state.mobile)
   const format =
@@ -2428,19 +2508,31 @@ function indoorEntryCard(sport: SelectedSport, showSlots = false): string {
         )
   const note = existing ? `<p class="existing-detail">${bilingualHtml(existing)}</p>` : ''
   const slots = showSlots && state.gender ? slotBadgeFor(sport.sportId, state.gender) : ''
+  const summary = `
+    <span class="entry-icon">${sportIcon(sport.sportId)}</span>
+    <span class="entry-copy">
+      <h4>${sportBi(sport.sportId)}</h4>
+      <p>${format}</p>
+    </span>
+    ${seatPill(sport.status)}`
+  const body = `${slots}${people}${note}`
+  if (fold) {
+    const open = foldOpen(fold.key, fold.open, Boolean(existing))
+    return foldPanel(
+      fold.key,
+      summary,
+      body,
+      open,
+      `entry-fold ${existing ? 'is-invalid' : ''} ${sport.status === 'waiting' ? 'is-waiting' : 'is-confirmed'}`,
+      sport.sportId,
+    )
+  }
   return `
     <article class="entry-card ${existing ? 'is-error' : ''} ${sport.status === 'waiting' ? 'is-waiting' : 'is-confirmed'}" data-sport="${sport.sportId}">
       <header class="entry-head">
-        <span class="entry-icon">${sportIcon(sport.sportId)}</span>
-        <div class="entry-copy">
-          <h4>${sportBi(sport.sportId)}</h4>
-          <p>${format}</p>
-          ${slots}
-        </div>
-        ${seatPill(sport.status)}
+        ${summary}
       </header>
-      ${people}
-      ${note}
+      ${body}
     </article>
   `
 }
@@ -2459,7 +2551,7 @@ function cricketSkillLine(which: CricketKind): string {
   return `<p class="entry-line"><span>${label}</span><strong>${text}</strong>${seatPill(cricketStatus(which))}</p>`
 }
 
-function cricketReviewCard(): string {
+function cricketReviewCard(fold?: { key: string; open: boolean }): string {
   if (!pickTurf && !pickOverarm) return ''
   const player = cricketEntry
   const both = pickTurf && pickOverarm
@@ -2480,23 +2572,34 @@ function cricketReviewCard(): string {
   const details = [player.mobile.trim(), player.age.trim(), player.birthDate.trim(), player.area.trim()]
     .filter(Boolean)
     .join(' · ')
+  const summary = `
+    ${
+      player.photoUrl
+        ? `<img class="entry-photo" src="${player.photoUrl}" alt="" />`
+        : `<span class="entry-icon">${iconCricket()}</span>`
+    }
+    <span class="entry-copy">
+      <h4>${bi(heading, headingGu)}</h4>
+      <p>${who}</p>
+    </span>`
+  const body = `
+    <p class="entry-line"><span>${bi('Player', 'ખેલાડી')}</span><strong>${escapeHtml(name || '—')}</strong></p>
+    ${details ? `<p class="entry-line"><span>${bi('Details', 'વિગત')}</span><strong>${escapeHtml(details)}</strong></p>` : ''}
+    ${pickTurf ? cricketSkillLine('turf') : ''}
+    ${pickOverarm ? cricketSkillLine('overarm') : ''}`
+  if (fold) {
+    return foldPanel(
+      fold.key,
+      summary,
+      body,
+      foldOpen(fold.key, fold.open),
+      'entry-fold',
+    )
+  }
   return `
     <article class="entry-card" data-tone="${both ? 'turf' : pickTurf ? 'turf' : 'overarm'}">
-      <header class="entry-head">
-        ${
-          player.photoUrl
-            ? `<img class="entry-photo" src="${player.photoUrl}" alt="" />`
-            : `<span class="entry-icon">${iconCricket()}</span>`
-        }
-        <div class="entry-copy">
-          <h4>${bi(heading, headingGu)}</h4>
-          <p>${who}</p>
-        </div>
-      </header>
-      <p class="entry-line"><span>${bi('Player', 'ખેલાડી')}</span><strong>${escapeHtml(name || '—')}</strong></p>
-      ${details ? `<p class="entry-line"><span>${bi('Details', 'વિગત')}</span><strong>${escapeHtml(details)}</strong></p>` : ''}
-      ${pickTurf ? cricketSkillLine('turf') : ''}
-      ${pickOverarm ? cricketSkillLine('overarm') : ''}
+      <header class="entry-head">${summary}</header>
+      ${body}
     </article>
   `
 }
@@ -2577,8 +2680,8 @@ function renderPay(): string {
       ${hasWaiting ? `<div class="alert" style="background:#fff8e6;border-color:rgba(212,160,23,0.35);color:#8a6a00">${bi('Some sports are full — you will be added to the waiting list for those.', GU.waitingAlert)}</div>` : ''}
       ${payError ? `<div class="alert is-error">${bilingualHtml(payError)}</div>` : ''}
       <div class="entry-list">
-        ${sports.map((sport) => indoorEntryCard(sport, true)).join('')}
-        ${cricketReviewCard()}
+        ${sports.map((sport) => indoorEntryCard(sport, true, { key: `pay:${sport.sportId}`, open: false })).join('')}
+        ${cricketReviewCard({ key: 'pay:cricket', open: false })}
       </div>
       ${billHtml(lines, total)}
 
@@ -3048,17 +3151,19 @@ function render(): void {
     }
   } else {
     app.innerHTML = `
-    <a class="nav-corner nav-corner-left" href="#/admin">${iconAdmin()} Admin</a>
-
     <div class="shell${phase.id === 'begin' ? ' shell-gate' : ''}">
-      <header class="brand">
-        <img class="brand-logo" src="/chanasma-logo.png" alt="શ્રી ચાણસ્મા જૈન યુવા યુથ" />
-        <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
-        <div class="olympic-rings" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
-        <p${brandSubHtml() ? '' : ' hidden'}>${brandSubHtml()}</p>
-        <div class="brand-sponsor"><span>${bi('Main sponsor', 'મુખ્ય પ્રાયોજક')}</span><strong>${bi('Jarin Bhai', 'જરીન ભાઈ')}</strong></div>
+      <header class="masthead">
+        <div class="masthead-brand">
+          <img class="masthead-logo" src="/chanasma-logo.png" alt="શ્રી ચાણસ્મા જૈન યુવા યુથ" />
+          <div class="masthead-lockup">
+            <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
+            <div class="olympic-rings" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+          </div>
+          <a class="masthead-admin" href="#/admin" aria-label="Admin">${iconAdmin()}</a>
+        </div>
+        <p class="masthead-sponsor"><span>${bi('Main sponsor', 'મુખ્ય પ્રાયોજક')}</span><strong>${bi('Jarin Bhai', 'જરીન ભાઈ')}</strong></p>
+        ${langTabsHtml()}
       </header>
-      ${langTabsHtml()}
 
       <main class="panel" data-group="${phase.id === 'begin' ? '' : phaseGroup(phase)}">
         ${phase.id !== 'begin' ? renderProgress() : ''}
@@ -3175,6 +3280,15 @@ async function applyPhoto(file: File): Promise<void> {
 }
 
 function bindEvents(): void {
+  app.querySelectorAll<HTMLDetailsElement>('details.fold').forEach((panel) => {
+    if (panel.dataset.bound === '1') return
+    panel.dataset.bound = '1'
+    panel.addEventListener('toggle', () => {
+      const key = panel.dataset.fold
+      if (key) foldState.set(key, panel.open)
+    })
+  })
+
   app.querySelectorAll<HTMLSelectElement>('select[data-cash-collector]').forEach((select) => {
     select.addEventListener('change', () => {
       cashCollector = select.value
