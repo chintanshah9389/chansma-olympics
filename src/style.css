@@ -4317,6 +4317,53 @@ img.sport-icon {
 }
 
 /* —— Bilingual EN / Gujarati (registration form only) —— */
+body[data-lang='en'] .i18n-gu,
+body[data-lang='en'] .i18n-sep,
+body[data-lang='gu'] .i18n-en,
+body[data-lang='gu'] .i18n-sep {
+  display: none !important;
+}
+
+.lang-bar {
+  position: sticky;
+  top: 0.45rem;
+  z-index: 25;
+  display: flex;
+  justify-content: center;
+  margin-top: 0.75rem;
+}
+
+.lang-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.2rem;
+  width: min(100%, 16rem);
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: #eef2f7;
+  box-shadow: 0 8px 20px rgba(6, 21, 40, 0.08);
+}
+
+.lang-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--navy);
+  border-radius: 999px;
+  min-height: 2.2rem;
+  padding: 0.3rem 0.6rem;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.lang-tab.is-selected {
+  background: var(--navy);
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(11, 31, 58, 0.18);
+}
+
 .i18n-line {
   display: inline;
 }

@@ -94,6 +94,51 @@ const STEP_LABELS = [
   { en: 'Review', gu: GU.steps.review },
 ] as const
 
+function readUiLang(): 'en' | 'gu' {
+  try {
+    const saved = sessionStorage.getItem('chansma-lang')
+    if (saved === 'en' || saved === 'gu') return saved
+  } catch {
+    /* ignore private-mode storage errors */
+  }
+  return 'en'
+}
+
+function ui(en: string, gu: string): string {
+  return uiLang === 'gu' ? gu : en
+}
+
+function setUiLang(lang: 'en' | 'gu'): void {
+  uiLang = lang
+  try {
+    sessionStorage.setItem('chansma-lang', lang)
+  } catch {
+    /* ignore private-mode storage errors */
+  }
+  applyUiLang()
+}
+
+function applyUiLang(): void {
+  document.body.dataset.lang = uiLang
+  document
+    .querySelectorAll<HTMLButtonElement>('[data-action="ui-lang"], [data-action="disclaimer-lang"]')
+    .forEach((tab) => {
+      const on = tab.dataset.lang === uiLang
+      tab.classList.toggle('is-selected', on)
+      tab.setAttribute('aria-selected', on ? 'true' : 'false')
+    })
+}
+
+function langTabsHtml(): string {
+  return `
+    <div class="lang-bar">
+      <div class="lang-tabs" role="tablist" aria-label="Language">
+        <button type="button" role="tab" class="lang-tab ${uiLang === 'en' ? 'is-selected' : ''}" data-action="ui-lang" data-lang="en" aria-selected="${uiLang === 'en'}">English</button>
+        <button type="button" role="tab" class="lang-tab ${uiLang === 'gu' ? 'is-selected' : ''}" data-action="ui-lang" data-lang="gu" aria-selected="${uiLang === 'gu'}">ગુજરાતી</button>
+      </div>
+    </div>`
+}
+
 function sportBi(id: SportId): string {
   return bi(sportLabel(id), GU.sports[id] ?? sportLabel(id))
 }
@@ -146,7 +191,7 @@ let cricketErrors: Partial<Record<CricketField, string>> = {}
 const skillErrors: Partial<Record<CricketKind, string>> = {}
 let beginError = ''
 let showDisclaimer = false
-let disclaimerLang: 'en' | 'gu' = 'en'
+let uiLang: 'en' | 'gu' = readUiLang()
 let cricketChoiceError = ''
 let cricketGenderError = ''
 let photoBusy = false
@@ -1368,7 +1413,7 @@ function resetForm(): void {
 
 function brandSubHtml(): string {
   const phase = currentPhase()
-  if (phase.id === 'cricket-gender' || phase.id === 'cricket-choice') return 'Cricket sports'
+  if (phase.id === 'cricket-gender' || phase.id === 'cricket-choice') return bi('Cricket sports', 'ક્રિકેટ સ્પોર્ટ્સ')
   if (phase.id === 'cricket-form') {
     if (pickTurf && !pickOverarm) {
       const event = eventById('turf')
@@ -1378,7 +1423,7 @@ function brandSubHtml(): string {
       const event = eventById('overarm')
       return `${bi(event.title, event.titleGu)} · ${bi(event.date, event.dateGu)}`
     }
-    return 'Cricket sports'
+    return bi('Cricket sports', 'ક્રિકેટ સ્પોર્ટ્સ')
   }
   if (phase.id === 'indoor') {
     if (phase.indoorStep === 1) return ''
@@ -1566,7 +1611,7 @@ function renderStep1(): string {
           ${iconUser()}
           <input id="fullName" name="fullName" type="text" autocomplete="name"
             class="${detailErrors.fullName ? 'is-invalid' : ''}"
-            value="${escapeAttr(state.fullName)}" placeholder="${escapeAttr(biText('e.g. Rahul Sharma', GU.placeholderName))}" />
+            value="${escapeAttr(state.fullName)}" placeholder="${escapeAttr(ui('e.g. Rahul Sharma', GU.placeholderName))}" />
         </div>
         ${detailErrors.fullName ? `<span class="error">${bilingualHtml(detailErrors.fullName)}</span>` : ''}
       </div>
@@ -1577,7 +1622,7 @@ function renderStep1(): string {
           ${iconPhone()}
           <input id="mobile" name="mobile" type="tel" inputmode="numeric" autocomplete="tel"
             class="${detailErrors.mobile ? 'is-invalid' : ''}"
-            value="${escapeAttr(state.mobile)}" placeholder="${escapeAttr(biText('10-digit mobile', GU.placeholderMobile))}"
+            value="${escapeAttr(state.mobile)}" placeholder="${escapeAttr(ui('10-digit mobile', GU.placeholderMobile))}"
             maxlength="12" pattern="[1-9][0-9]{9}" />
         </div>
         ${detailErrors.mobile ? `<span class="error">${bilingualHtml(detailErrors.mobile)}</span>` : ''}
@@ -1684,7 +1729,7 @@ function renderPlayerFields(
               class="${errors.player1?.fullName ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="fullName"
               value="${escapeAttr(players.player1.fullName)}"
-              placeholder="${escapeAttr(biText('Full name', GU.placeholderName))}" required />
+              placeholder="${escapeAttr(ui('Full name', GU.placeholderName))}" required />
             ${errors.player1?.fullName ? `<span class="error">${bilingualHtml(errors.player1.fullName)}</span>` : ''}
           </div>
           <div class="field ${errors.player1?.mobile ? 'is-invalid' : ''}">
@@ -1693,7 +1738,7 @@ function renderPlayerFields(
               class="${errors.player1?.mobile ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="mobile"
               value="${escapeAttr(players.player1.mobile)}"
-              placeholder="${escapeAttr(biText('10-digit mobile', GU.placeholderMobile))}"
+              placeholder="${escapeAttr(ui('10-digit mobile', GU.placeholderMobile))}"
               maxlength="12" pattern="[1-9][0-9]{9}" required />
             ${errors.player1?.mobile ? `<span class="error">${bilingualHtml(errors.player1.mobile)}</span>` : ''}
           </div>
@@ -1703,7 +1748,7 @@ function renderPlayerFields(
               class="${errors.player1?.age ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player1" data-doubles-field="age"
               value="${escapeAttr(players.player1.age)}"
-              placeholder="${escapeAttr(biText(`${ageLimit.minAge}–${ageLimit.maxAge}`, GU.placeholderAge))}" required />
+              placeholder="${escapeAttr(ui(`${ageLimit.minAge}–${ageLimit.maxAge}`, GU.placeholderAge))}" required />
             ${errors.player1?.age ? `<span class="error">${bilingualHtml(errors.player1.age)}</span>` : ''}
           </div>
         </div>
@@ -1737,7 +1782,7 @@ function renderPlayerFields(
               class="${errors.player2?.fullName ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="fullName"
               value="${escapeAttr(players.player2.fullName)}"
-              placeholder="${escapeAttr(biText('Player 2 full name', 'ખેલાડી ૨ પૂરું નામ'))}" />
+              placeholder="${escapeAttr(ui('Player 2 full name', 'ખેલાડી ૨ પૂરું નામ'))}" />
             ${errors.player2?.fullName ? `<span class="error">${bilingualHtml(errors.player2.fullName)}</span>` : ''}
           </div>
           <div class="field ${errors.player2?.mobile ? 'is-invalid' : ''}">
@@ -1746,7 +1791,7 @@ function renderPlayerFields(
               class="${errors.player2?.mobile ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="mobile"
               value="${escapeAttr(players.player2.mobile)}"
-              placeholder="${escapeAttr(biText('10-digit mobile', GU.placeholderMobile))}"
+              placeholder="${escapeAttr(ui('10-digit mobile', GU.placeholderMobile))}"
               maxlength="12" pattern="[1-9][0-9]{9}" />
             ${errors.player2?.mobile ? `<span class="error">${bilingualHtml(errors.player2.mobile)}</span>` : ''}
           </div>
@@ -1756,7 +1801,7 @@ function renderPlayerFields(
               class="${errors.player2?.age ? 'is-invalid' : ''}"
               data-doubles-sport="${id}" data-doubles-player="player2" data-doubles-field="age"
               value="${escapeAttr(players.player2.age)}"
-              placeholder="${escapeAttr(biText(`${ageLimit.minAge}–${ageLimit.maxAge}`, GU.placeholderAge))}" />
+              placeholder="${escapeAttr(ui(`${ageLimit.minAge}–${ageLimit.maxAge}`, GU.placeholderAge))}" />
             ${errors.player2?.age ? `<span class="error">${bilingualHtml(errors.player2.age)}</span>` : ''}
           </div>
         </div>
@@ -1930,7 +1975,7 @@ function disclaimerHtml(): string {
   const turf = eventById('turf')
   const overarm = eventById('overarm')
   return `
-    <div class="disclaimer" data-lang="${disclaimerLang}" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title">
+    <div class="disclaimer" data-lang="${uiLang}" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title">
       <div class="disclaimer-card">
         <header class="disclaimer-head">
           <div class="disclaimer-brand-row">
@@ -1954,8 +1999,8 @@ function disclaimerHtml(): string {
             <button type="button" class="disclaimer-close" data-action="close-disclaimer" aria-label="Close">${bi('Close', 'બંધ કરો')}</button>
           </div>
           <div class="disclaimer-tabs" role="tablist" aria-label="Language">
-            <button type="button" role="tab" class="disclaimer-tab ${disclaimerLang === 'en' ? 'is-selected' : ''}" data-action="disclaimer-lang" data-lang="en" aria-selected="${disclaimerLang === 'en'}">English</button>
-            <button type="button" role="tab" class="disclaimer-tab ${disclaimerLang === 'gu' ? 'is-selected' : ''}" data-action="disclaimer-lang" data-lang="gu" aria-selected="${disclaimerLang === 'gu'}">ગુજરાતી</button>
+            <button type="button" role="tab" class="disclaimer-tab ${uiLang === 'en' ? 'is-selected' : ''}" data-action="disclaimer-lang" data-lang="en" aria-selected="${uiLang === 'en'}">English</button>
+            <button type="button" role="tab" class="disclaimer-tab ${uiLang === 'gu' ? 'is-selected' : ''}" data-action="disclaimer-lang" data-lang="gu" aria-selected="${uiLang === 'gu'}">ગુજરાતી</button>
           </div>
         </header>
         <div class="disclaimer-body">
@@ -2090,7 +2135,7 @@ function renderBegin(): string {
   const indoor = eventById('indoor')
   return `
     <div class="fade-step gate-step">
-      <h2 class="step-title">Choose your registration</h2>
+      <h2 class="step-title">${bi('Choose your registration', 'તમારી નોંધણી પસંદ કરો')}</h2>
       ${beginError ? `<div class="alert is-error">${bilingualHtml(beginError)}</div>` : ''}
       <div class="gate-grid">
         <button type="button" class="gate-card ${pickIndoor ? 'is-selected' : ''}" data-action="toggle-indoor">
@@ -2103,7 +2148,7 @@ function renderBegin(): string {
           </span>
           <span class="gate-body">
             <span class="gate-kicker">${bi(indoor.date, indoor.dateGu)}</span>
-            <span class="gate-title">Indoor</span>
+            <span class="gate-title">${bi('Indoor', 'ઇન્ડોર')}</span>
             <span class="gate-label">${bi('Sports on this day', 'આ દિવસની રમતો')}</span>
             <span class="sport-tiles">
               ${indoor.sports
@@ -2111,7 +2156,7 @@ function renderBegin(): string {
                   (sport) => `
                 <span class="sport-tile">
                   <span class="sport-tile-photo">${sport.sportId ? sportIcon(sport.sportId) : ''}</span>
-                  <span class="sport-tile-name">${sport.en}</span>
+                  <span class="sport-tile-name">${bi(sport.en, sport.gu)}</span>
                 </span>`,
                 )
                 .join('')}
@@ -2119,12 +2164,12 @@ function renderBegin(): string {
           </span>
         </button>
 
-        <div class="gate-and" aria-hidden="true">And</div>
+        <div class="gate-and" aria-hidden="true">${bi('And', 'અને')}</div>
 
         <button type="button" class="gate-card ${pickCricket ? 'is-selected' : ''}" data-action="toggle-cricket" data-tone="cricket">
           <span class="gate-banner">
             <span class="cricket-head">
-              <span class="gate-banner-title">Cricket sports</span>
+              <span class="gate-banner-title">${bi('Cricket sports', 'ક્રિકેટ સ્પોર્ટ્સ')}</span>
               <span class="cricket-dates">
                 <span class="cricket-date">Turf 10 Jan 2027</span>
                 <span class="cricket-date">Overarm 13 Dec 2026</span>
@@ -2306,7 +2351,7 @@ function renderCricketForm(): string {
         "Player's area",
         'ખેલાડીનો વિસ્તાર',
         `<select data-cricket="player" data-field="area">
-          <option value="">${escapeAttr(biText('Select area', 'વિસ્તાર પસંદ કરો'))}</option>
+          <option value="">${escapeAttr(ui('Select area', 'વિસ્તાર પસંદ કરો'))}</option>
           ${PLAYER_AREAS.map(
             (area) =>
               `<option value="${escapeAttr(area)}" ${player.area === area ? 'selected' : ''}>${escapeHtml(area)}</option>`,
@@ -3003,8 +3048,9 @@ function render(): void {
         <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
         <div class="olympic-rings" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
         <p${brandSubHtml() ? '' : ' hidden'}>${brandSubHtml()}</p>
-        <div class="brand-sponsor"><span>Main sponsor</span><strong>Jarin Bhai</strong></div>
+        <div class="brand-sponsor"><span>${bi('Main sponsor', 'મુખ્ય પ્રાયોજક')}</span><strong>${bi('Jarin Bhai', 'જરીન ભાઈ')}</strong></div>
       </header>
+      ${langTabsHtml()}
 
       <main class="panel" data-group="${phase.id === 'begin' ? '' : phaseGroup(phase)}">
         ${phase.id !== 'begin' ? renderProgress() : ''}
@@ -3017,6 +3063,7 @@ function render(): void {
   }
 
   paintedKey = key
+  applyUiLang()
   mountDisclaimer()
   bindEvents()
   centerActiveStep()
@@ -3292,6 +3339,8 @@ function bindEvents(): void {
   })
 
   app.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((btn) => {
+    if (btn.dataset.bound === '1') return
+    btn.dataset.bound = '1'
     // Keep focus on the button so input blur does not wipe the DOM before click (mobile).
     btn.addEventListener('pointerdown', (event) => {
       suppressBlurRenderUntil = Date.now() + 400
@@ -3342,16 +3391,14 @@ function bindEvents(): void {
         downloadReceipt()
       } else if (action === 'print') {
         window.print()
-      } else if (action === 'disclaimer-lang' && (btn.dataset.lang === 'en' || btn.dataset.lang === 'gu')) {
-        disclaimerLang = btn.dataset.lang
+      } else if (
+        (action === 'disclaimer-lang' || action === 'ui-lang') &&
+        (btn.dataset.lang === 'en' || btn.dataset.lang === 'gu')
+      ) {
+        setUiLang(btn.dataset.lang)
         const sheet = app.querySelector<HTMLElement>('.disclaimer')
-        if (!sheet) return
-        sheet.dataset.lang = disclaimerLang
-        sheet.querySelectorAll<HTMLButtonElement>('[data-action="disclaimer-lang"]').forEach((tab) => {
-          const on = tab.dataset.lang === disclaimerLang
-          tab.classList.toggle('is-selected', on)
-          tab.setAttribute('aria-selected', on ? 'true' : 'false')
-        })
+        if (sheet) sheet.dataset.lang = uiLang
+        if (action === 'ui-lang') render()
       } else if (action === 'close-disclaimer') {
         showDisclaimer = false
         render()
