@@ -1,5 +1,10 @@
 import { applyFees, getFees, type FeeId } from './fees'
 import {
+  applySportEnabled,
+  getSportEnabled,
+  type SportEnabledMap,
+} from './sportAvailability'
+import {
   applyCricketCapacities,
   getCricketCapacities,
   type CricketCapacities,
@@ -220,6 +225,38 @@ export async function saveFees(
   }
   const data = (await response.json()) as Partial<Record<FeeId, number>>
   return applyFees(data)
+}
+
+export async function refreshSportAvailability(): Promise<SportEnabledMap> {
+  try {
+    const response = await fetch(apiUrl('/api/sport-availability'))
+    if (!response.ok) {
+      throw new Error(`Sport availability load failed (${response.status})`)
+    }
+    const data = (await response.json()) as Partial<SportEnabledMap>
+    return applySportEnabled(data)
+  } catch (error) {
+    console.error('Could not load sport availability', error)
+    return getSportEnabled()
+  }
+}
+
+export async function saveSportAvailability(
+  enabled: SportEnabledMap,
+): Promise<SportEnabledMap> {
+  const response = await fetch(apiUrl('/api/sport-availability'), {
+    method: 'PUT',
+    headers: adminHeaders(true),
+    body: JSON.stringify(enabled),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new Error(body?.error || `Save sport availability failed (${response.status})`)
+  }
+  const data = (await response.json()) as Partial<SportEnabledMap>
+  return applySportEnabled(data)
 }
 
 export async function refreshCricketCapacities(): Promise<CricketCapacities> {

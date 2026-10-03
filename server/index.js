@@ -63,6 +63,16 @@ const DEFAULT_CRICKET_CAPACITIES = {
 const SPORT_IDS = Object.keys(DEFAULT_CAPACITIES)
 const AGE_IDS = Object.keys(DEFAULT_AGE_LIMITS)
 const FEE_IDS = Object.keys(DEFAULT_FEES)
+const AVAILABILITY_IDS = [
+  'football',
+  'pickleball',
+  'carrom',
+  'chess',
+  'tt',
+  'badminton',
+  'turf',
+  'overarm',
+]
 const CRICKET_EVENTS = ['turf', 'overarm']
 
 function normalizeCapacities(input) {
@@ -167,6 +177,29 @@ function normalizeCricketCapacities(input) {
       male: num(overarm.male, DEFAULT_CRICKET_CAPACITIES.overarm.male),
     },
   }
+}
+
+function asEnabled(value, fallback) {
+  if (value === undefined || value === null) return fallback
+  if (value === false || value === 0 || value === 'false' || value === '0') return false
+  return true
+}
+
+function normalizeAvailability(input) {
+  const source = input && typeof input === 'object' ? input : {}
+  const out = {}
+  for (const id of AVAILABILITY_IDS) {
+    out[id] = asEnabled(source[id], true)
+  }
+  return out
+}
+
+async function readAvailability() {
+  const result = await pool.query(
+    `SELECT value FROM settings WHERE key = 'sport_availability' LIMIT 1`,
+  )
+  if (result.rowCount === 0) return normalizeAvailability(null)
+  return normalizeAvailability(result.rows[0].value)
 }
 
 async function readFees() {
@@ -300,6 +333,16 @@ async function ensureSchema() {
     await pool.query(
       `INSERT INTO settings (key, value) VALUES ('fees', $1::jsonb)`,
       [JSON.stringify(DEFAULT_FEES)],
+    )
+  }
+
+  const availabilityExisting = await pool.query(
+    `SELECT value FROM settings WHERE key = 'sport_availability' LIMIT 1`,
+  )
+  if (availabilityExisting.rowCount === 0) {
+    await pool.query(
+      `INSERT INTO settings (key, value) VALUES ('sport_availability', $1::jsonb)`,
+      [JSON.stringify(normalizeAvailability(null))],
     )
   }
 
@@ -574,6 +617,10 @@ function broadcastAgeLimitsUpdated() {
 
 function broadcastFeesUpdated() {
   broadcast('fees-updated')
+}
+
+function broadcastAvailabilityUpdated() {
+  broadcast('sport-availability-updated')
 }
 
 function broadcastCricketCapacitiesUpdated() {
@@ -896,6 +943,28 @@ app.put('/api/fees', async (req, res) => {
   }
 })
 
+app.get('/api/sport-availability', async (_req, res) => {
+  try {
+    res.json(await readAvailability())
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: 'Failed to load sport availability' })
+  }
+})
+
+app.put('/api/sport-availability', async (req, res) => {
+  if (!requireAdmin(req, res, ['superadmin'])) return
+  try {
+    const enabled = normalizeAvailability(req.body)
+    await upsertSetting('sport_availability', enabled)
+    broadcastAvailabilityUpdated()
+    res.json(enabled)
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: 'Failed to save sport availability' })
+  }
+})
+
 app.get('/api/cricket-capacities', async (_req, res) => {
   try {
     res.json(await readCricketCapacities())
@@ -977,6 +1046,15 @@ async function registrationError(reg, excludeId = null) {
   }
   const cricketError = cricketEntryError(reg)
   if (cricketError) return cricketError
+  const enabled = await readAvailability()
+  const sportIds = []
+  if (reg.event === 'turf' || reg.event === 'overarm') sportIds.push(reg.event)
+  for (const sport of reg.sports || []) {
+    if (sport?.sportId) sportIds.push(sport.sportId)
+  }
+  if (sportIds.some((id) => enabled[id] === false)) {
+    return 'That sport is closed for registration'
+  }
   const ageLimits = await readAgeLimits()
   const ageError = sportsAgeError(reg.sports, ageLimits)
   if (ageError) return ageError

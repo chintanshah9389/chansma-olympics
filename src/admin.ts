@@ -15,16 +15,24 @@ import {
   refreshCricketCapacities,
   refreshFees,
   refreshRegistrations,
+  refreshSportAvailability,
   resetRegistrations,
   sanitizeMobileInput,
   saveAgeLimits,
   saveCapacities,
   saveCricketCapacities,
   saveFees,
+  saveSportAvailability,
   seatWeight,
   updateRegistration,
 } from './storage'
 import { AGE_LIMIT_IDS, applyAgeLimits, getAgeLimits, getSportAgeLimit, type SportAgeLimits } from './ageLimits'
+import {
+  AVAILABILITY_IDS,
+  applySportEnabled,
+  getSportEnabled,
+  type SportEnabledMap,
+} from './sportAvailability'
 import {
   ALL_SPORT_IDS,
   getCapacities,
@@ -84,6 +92,10 @@ let ageDraft: SportAgeLimits | null = null
 let ageMessage = ''
 let ageError = ''
 let ageSaving = false
+let availabilityDraft: SportEnabledMap | null = null
+let availabilityMessage = ''
+let availabilityError = ''
+let availabilitySaving = false
 let tableMessage = ''
 let tableError = ''
 let tableBusy = false
@@ -138,6 +150,15 @@ function ensureFeeDraft(): Record<FeeId, number> {
 
 function syncFeeDraftFromLive(): void {
   feeDraft = getFees()
+}
+
+function ensureAvailabilityDraft(): SportEnabledMap {
+  if (!availabilityDraft) availabilityDraft = getSportEnabled()
+  return availabilityDraft
+}
+
+function syncAvailabilityDraftFromLive(): void {
+  availabilityDraft = getSportEnabled()
 }
 
 function ensureCapacityDraft(): SportCapacities {
@@ -510,11 +531,13 @@ async function afterTableChange(
     refreshCricketCapacities(),
     refreshAgeLimits(),
     refreshFees(),
+    refreshSportAvailability(),
   ])
   syncCapacityDraftFromLive()
   syncCricketDraftFromLive()
   syncAgeDraftFromLive()
   syncFeeDraftFromLive()
+  syncAvailabilityDraftFromLive()
   tableMessage = message
   tableError = ''
   tableBusy = false
@@ -741,7 +764,9 @@ function renderLogin(root: HTMLElement): void {
           refreshRegistrations(),
           refreshCapacities(),
           refreshAgeLimits(),
+          refreshSportAvailability(),
         ])
+        syncAvailabilityDraftFromLive()
         renderAdmin(root)
       })
       .catch((error) => {
@@ -843,6 +868,48 @@ export function renderAdmin(root: HTMLElement): void {
 
       <main class="panel panel-admin">
         ${isSuperAdmin() ? `
+        <section class="capacity-panel">
+          <div class="capacity-top">
+            <div class="capacity-intro">
+              <p class="capacity-kicker">Live settings</p>
+              <h2 class="capacity-title">Sports on the form</h2>
+              <p class="capacity-sub">Turn a sport off to remove it from registration. The name, photo, rules, and price for a closed sport are hidden. Turn it on again to bring it back.</p>
+            </div>
+            <div class="capacity-toolbar">
+              <button type="button" class="btn btn-gold" data-admin="apply-availability" ${availabilitySaving ? 'disabled' : ''}>
+                ${availabilitySaving ? 'Saving…' : 'Apply sports'}
+              </button>
+            </div>
+          </div>
+          ${availabilityError ? `<div class="alert">${escapeHtml(availabilityError)}</div>` : ''}
+          ${availabilityMessage ? `<div class="capacity-ok">${escapeHtml(availabilityMessage)}</div>` : ''}
+          <div class="capacity-table-wrap">
+            <table class="capacity-table">
+              <thead>
+                <tr>
+                  <th scope="col">Sport</th>
+                  <th scope="col">Registration</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${AVAILABILITY_IDS.map((id) => {
+                  const on = ensureAvailabilityDraft()[id] !== false
+                  return `
+                  <tr>
+                    <th scope="row"><span class="sport-heading">${sportIcon(id)} ${sportLabel(id)}</span></th>
+                    <td>
+                      <label class="avail-switch">
+                        <input type="checkbox" data-availability="${id}" ${on ? 'checked' : ''} aria-label="${sportLabel(id)} on the form" />
+                        <span>${on ? 'On' : 'Off'}</span>
+                      </label>
+                    </td>
+                  </tr>`
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="capacity-panel">
           <div class="capacity-top">
             <div class="capacity-intro">
@@ -1232,6 +1299,16 @@ export function renderAdmin(root: HTMLElement): void {
     })
   })
 
+  root.querySelectorAll<HTMLInputElement>('[data-availability]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const id = input.dataset.availability as SeatSportId
+      ensureAvailabilityDraft()[id] = input.checked
+      availabilityMessage = ''
+      availabilityError = ''
+      renderAdmin(root)
+    })
+  })
+
   root.querySelectorAll<HTMLInputElement>('[data-fee-id]').forEach((input) => {
     input.addEventListener('input', () => {
       const id = input.dataset.feeId as FeeId
@@ -1279,11 +1356,13 @@ export function renderAdmin(root: HTMLElement): void {
           refreshCricketCapacities(),
           refreshAgeLimits(),
           refreshFees(),
+          refreshSportAvailability(),
         ]).then(() => {
           syncCapacityDraftFromLive()
           syncCricketDraftFromLive()
           syncAgeDraftFromLive()
           syncFeeDraftFromLive()
+          syncAvailabilityDraftFromLive()
           capacityMessage = ''
           capacityError = ''
           ageMessage = ''
@@ -1449,6 +1528,27 @@ export function renderAdmin(root: HTMLElement): void {
         capacityMessage = `Filled all sports to ${value} men & ${value} women — click Apply to save.`
         capacityError = ''
         renderAdmin(root)
+      } else if (action === 'apply-availability') {
+        availabilitySaving = true
+        availabilityError = ''
+        availabilityMessage = ''
+        renderAdmin(root)
+        void saveSportAvailability(ensureAvailabilityDraft())
+          .then((saved) => {
+            applySportEnabled(saved)
+            syncAvailabilityDraftFromLive()
+            availabilityMessage = 'Saved. Closed sports are hidden on the registration form.'
+            availabilityError = ''
+          })
+          .catch((error) => {
+            availabilityError =
+              error instanceof Error ? error.message : 'Could not save sports'
+            availabilityMessage = ''
+          })
+          .finally(() => {
+            availabilitySaving = false
+            renderAdmin(root)
+          })
       } else if (action === 'apply-fees') {
         feeSaving = true
         feeError = ''

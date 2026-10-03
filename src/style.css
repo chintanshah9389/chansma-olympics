@@ -1963,6 +1963,20 @@ details.entry-fold.fold {
   background: #f6f3ec;
 }
 
+.avail-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 800;
+  color: var(--navy);
+}
+
+.avail-switch input {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--navy);
+}
+
 .fold-body {
   padding: 0 0.85rem 0.85rem;
 }

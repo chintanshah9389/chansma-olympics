@@ -18,6 +18,7 @@ import {
   refreshCricketCapacities,
   refreshFees,
   refreshRegistrations,
+  refreshSportAvailability,
   getRegistrations,
   saveCheckout,
   setActiveEvent,
@@ -41,7 +42,9 @@ import {
   type PlayerSkill,
 } from './cricketForm'
 import { getSportAgeLimit } from './ageLimits'
+import { isSportEnabled, sportAvailabilityRevision } from './sportAvailability'
 import {
+  ALL_SPORT_IDS,
   PRIMARY_SPORTS,
   SECONDARY_SPORTS,
   genderLabel,
@@ -233,11 +236,62 @@ const app = document.querySelector<HTMLDivElement>('#app')!
 
 function selectedSportsList(): SportId[] {
   const list: SportId[] = []
-  if (state.primarySport) list.push(state.primarySport)
+  if (state.primarySport && isSportEnabled(state.primarySport)) list.push(state.primarySport)
   for (const id of state.secondarySports) {
-    if (!list.includes(id)) list.push(id)
+    if (isSportEnabled(id) && !list.includes(id)) list.push(id)
   }
   return list
+}
+
+function indoorOpen(): boolean {
+  return ALL_SPORT_IDS.some((id) => isSportEnabled(id))
+}
+
+function cricketOpen(): boolean {
+  return isSportEnabled('turf') || isSportEnabled('overarm')
+}
+
+function secondarySportsOpen(): SportId[] {
+  return SECONDARY_SPORTS.filter((id) => isSportEnabled(id))
+}
+
+function joinNames(parts: string[], word: string): string {
+  if (parts.length <= 1) return parts[0] ?? ''
+  if (parts.length === 2) return `${parts[0]} ${word} ${parts[1]}`
+  return `${parts.slice(0, -1).join(', ')} ${word} ${parts[parts.length - 1]}`
+}
+
+function sportNamePair(ids: SportId[], wordEn: string, wordGu: string): { en: string; gu: string } {
+  return {
+    en: joinNames(ids.map((id) => sportLabel(id)), wordEn),
+    gu: joinNames(ids.map((id) => GU.sports[id] ?? sportLabel(id)), wordGu),
+  }
+}
+
+function pruneDisabledSelections(): void {
+  if (state.primarySport && !isSportEnabled(state.primarySport)) {
+    delete state.formats[state.primarySport]
+    delete state.doublesPlayers[state.primarySport]
+    state.primarySport = null
+  }
+  state.secondarySports = state.secondarySports.filter((id) => {
+    if (isSportEnabled(id)) return true
+    delete state.formats[id]
+    delete state.doublesPlayers[id]
+    return false
+  })
+  if (!isSportEnabled('turf')) pickTurf = false
+  if (!isSportEnabled('overarm')) pickOverarm = false
+  if (!indoorOpen()) pickIndoor = false
+  if (!cricketOpen()) {
+    pickCricket = false
+    pickTurf = false
+    pickOverarm = false
+    cricketGender = null
+  } else if (cricketGender === 'female' && !isSportEnabled('turf')) {
+    cricketGender = null
+    pickTurf = false
+  }
 }
 
 /** Format-choice sports + football / carrom / chess player details */
@@ -788,10 +842,16 @@ function movePhase(direction: 1 | -1): void {
 
 function validateBegin(): boolean {
   if (!pickIndoor && !pickCricket) {
-    beginError = biText(
-      'Select Indoor, Cricket, or both.',
-      'ઇન્ડોર, ક્રિકેટ, અથવા બંને પસંદ કરો.',
-    )
+    const indoorOn = indoorOpen()
+    const cricketOn = cricketOpen()
+    beginError =
+      indoorOn && cricketOn
+        ? biText('Select Indoor, Cricket, or both.', 'ઇન્ડોર, ક્રિકેટ, અથવા બંને પસંદ કરો.')
+        : indoorOn
+          ? biText('Select Indoor.', 'ઇન્ડોર પસંદ કરો.')
+          : cricketOn
+            ? biText('Select Cricket.', 'ક્રિકેટ પસંદ કરો.')
+            : biText('Registration is closed.', 'નોંધણી બંધ છે.')
     return false
   }
   beginError = ''
@@ -809,10 +869,14 @@ function validateCricketGender(): boolean {
 
 function validateCricketChoice(): boolean {
   if (!pickTurf && !pickOverarm) {
-    cricketChoiceError = biText(
-      'Select Turf, Overarm, or both.',
-      'ટર્ફ, ઓવરઆર્મ, અથવા બંને પસંદ કરો.',
-    )
+    const turfOn = isSportEnabled('turf')
+    const overarmOn = isSportEnabled('overarm') && cricketGender !== 'female'
+    cricketChoiceError =
+      turfOn && overarmOn
+        ? biText('Select Turf, Overarm, or both.', 'ટર્ફ, ઓવરઆર્મ, અથવા બંને પસંદ કરો.')
+        : turfOn
+          ? biText('Select Turf.', 'ટર્ફ પસંદ કરો.')
+          : biText('Select Overarm.', 'ઓવરઆર્મ પસંદ કરો.')
     return false
   }
   cricketChoiceError = ''
@@ -1115,10 +1179,11 @@ function goBack(): void {
 }
 
 function primarySportsForGender(): SportId[] {
-  if (state.gender === 'female') {
-    return PRIMARY_SPORTS.filter((id) => id !== 'football')
-  }
-  return [...PRIMARY_SPORTS]
+  const ids =
+    state.gender === 'female'
+      ? PRIMARY_SPORTS.filter((id) => id !== 'football')
+      : [...PRIMARY_SPORTS]
+  return ids.filter((id) => isSportEnabled(id))
 }
 
 function setGender(gender: Gender): void {
@@ -1131,6 +1196,7 @@ function setGender(gender: Gender): void {
 }
 
 function setPrimary(id: SportId): void {
+  if (!isSportEnabled(id)) return
   if (!state.gender) {
     sportError = biText('Select Male or Female first', GU.errSelectGender)
     shouldRevealErrors = true
@@ -1160,6 +1226,7 @@ function setPrimary(id: SportId): void {
 }
 
 function toggleSecondary(id: SportId): void {
+  if (!isSportEnabled(id)) return
   if (!state.gender) {
     sportError = biText('Select Male or Female first', GU.errSelectGender)
     shouldRevealErrors = true
@@ -1649,6 +1716,21 @@ function renderStep2(): string {
   const sportsInvalid = Boolean(
     sportError && state.gender && selectedSportsList().length === 0,
   )
+  const primaryIds = primarySportsForGender()
+  const secondaryIds = secondarySportsOpen()
+  const primaryNames = sportNamePair(primaryIds, 'or', 'અથવા')
+  const secondaryNames = sportNamePair(secondaryIds, 'and', 'અને')
+  const primaryHint =
+    state.gender === 'female' && isSportEnabled('football')
+      ? bi(
+          `Optional — ${primaryNames.en} (Football is Male only)`,
+          `વૈકલ્પિક — ${primaryNames.gu} (ફૂટબોલ ફક્ત પુરુષો માટે)`,
+        )
+      : bi(`Optional — ${primaryNames.en}`, `વૈકલ્પિક — ${primaryNames.gu}`)
+  const secondaryHint = bi(
+    `${secondaryNames.en} — pick up to ${Math.min(2, secondaryIds.length)}. At least one sport total is required.`,
+    `${secondaryNames.gu} — વધુમાં વધુ ${Math.min(2, secondaryIds.length)} પસંદ કરો. કુલ ઓછામાં ઓછી એક રમત જરૂરી છે.`,
+  )
   return `
     <div class="fade-step">
       <h2 class="step-title">${bi('Select sports', GU.sportsTitle)}</h2>
@@ -1680,37 +1762,47 @@ function renderStep2(): string {
         </button>
       </div>
 
+      ${
+        primaryIds.length
+          ? `
       <div class="section-label">${bi('Main sport — optional (choose one)', GU.mainSport)}</div>
-      <p class="section-hint">
-        ${
-          state.gender === 'female'
-            ? bi('Optional — Pickleball (Football is Male only)', GU.mainHintFemale)
-            : bi('Optional — Football or Pickleball', GU.mainHintMale)
-        }
-      </p>
+      <p class="section-hint">${primaryHint}</p>
       <div class="choice-grid ${sportsInvalid ? 'is-invalid' : ''}" data-error-section="primary">
-        ${primarySportsForGender()
+        ${primaryIds
           .map((id) =>
             renderChoice(id, state.primarySport === id, false, 'primary'),
           )
           .join('')}
-      </div>
+      </div>`
+          : ''
+      }
 
-      <div class="section-label">${bi('Additional sports — up to 2 (at least 1 sport overall)', GU.extraSports)}</div>
-      <p class="section-hint">${bi('Carrom, Chess, Table Tennis, Badminton — pick up to 2. At least one sport total is required.', GU.extraHint)}</p>
+      ${
+        secondaryIds.length
+          ? `
+      <div class="section-label">${
+        secondaryIds.length > 1
+          ? bi('Additional sports — up to 2 (at least 1 sport overall)', GU.extraSports)
+          : bi('Additional sport', 'વધારાની રમત')
+      }</div>
+      <p class="section-hint">${secondaryHint}</p>
       <div class="choice-grid cols-3 ${sportsInvalid ? 'is-invalid' : ''}" data-error-section="secondary">
-        ${SECONDARY_SPORTS.map((id) => {
-          const atLimit =
-            !state.secondarySports.includes(id) &&
-            state.secondarySports.length >= 2
-          return renderChoice(
-            id,
-            state.secondarySports.includes(id),
-            atLimit,
-            'secondary',
-          )
-        }).join('')}
-      </div>
+        ${secondaryIds
+          .map((id) => {
+            const atLimit =
+              !state.secondarySports.includes(id) &&
+              state.secondarySports.length >= 2
+            return renderChoice(
+              id,
+              state.secondarySports.includes(id),
+              atLimit,
+              'secondary',
+            )
+          })
+          .join('')}
+      </div>`
+          : ''
+      }
 
       <div class="actions">
         <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
@@ -2030,6 +2122,66 @@ function disclaimerHtml(): string {
   const indoor = eventById('indoor')
   const turf = eventById('turf')
   const overarm = eventById('overarm')
+  const primaryOpen = PRIMARY_SPORTS.filter((id) => isSportEnabled(id))
+  const secondaryOpen = secondarySportsOpen()
+  const racketOpen = (['pickleball', 'badminton', 'tt'] as SportId[]).filter((id) =>
+    isSportEnabled(id),
+  )
+  const rules: string[] = []
+  if (primaryOpen.length > 1) {
+    const names = sportNamePair(primaryOpen, 'and', 'અને')
+    rules.push(
+      bi(
+        `From ${names.en}, choose only one sport.`,
+        `${names.gu}માંથી કોઈ પણ એક જ રમત પસંદ કરવાની રહેશે.`,
+      ),
+    )
+  } else if (primaryOpen.length === 1) {
+    const names = sportNamePair(primaryOpen, 'and', 'અને')
+    rules.push(bi(`You can choose ${names.en}.`, `તમે ${names.gu} પસંદ કરી શકો છો.`))
+  }
+  if (secondaryOpen.length > 1) {
+    const names = sportNamePair(secondaryOpen, 'and', 'અને')
+    rules.push(
+      bi(
+        `From ${names.en}, choose any two sports.`,
+        `${names.gu}માંથી કોઈ પણ બે રમતો પસંદ કરી શકાશે.`,
+      ),
+    )
+  } else if (secondaryOpen.length === 1) {
+    const names = sportNamePair(secondaryOpen, 'and', 'અને')
+    rules.push(bi(`You can choose ${names.en}.`, `તમે ${names.gu} પસંદ કરી શકો છો.`))
+  }
+  if (racketOpen.length) {
+    const names = sportNamePair(racketOpen, 'and', 'અને')
+    const verb = racketOpen.length === 1 ? 'is' : 'are'
+    rules.push(
+      bi(
+        `${names.en} ${verb} played with doubles only: only men’s doubles and women’s doubles. No mixed doubles.`,
+        `${names.gu} ફક્ત ડબલ્સમાં રમાશે: ફક્ત પુરુષ ડબલ્સ અને મહિલા ડબલ્સ. મિક્સ ડબલ્સ નથી.`,
+      ),
+    )
+    rules.push(
+      bi(
+        `${names.en}: if you do not have a second player, we will provide one. Please fill the form. Please wait for our response. You cannot choose the partner — you play with the partner the organizer assigns.`,
+        `${names.gu}: જો બીજો ખેલાડી ન હોય, તો અમે આપીશું. કૃપા કરીને ફોર્મ ભરો. કૃપા કરીને અમારા જવાબની રાહ જુઓ. તમે પાર્ટનર પસંદ કરી શકતા નથી — આયોજક જે પાર્ટનર આપે તેની સાથે રમવું પડશે.`,
+      ),
+    )
+    rules.push(
+      bi(
+        'If you already have a partner, choose Double and enter their details.',
+        'પાર્ટનર હોય તો ડબલ પસંદ કરીને વિગત દાખલ કરો.',
+      ),
+    )
+  }
+  const indoorNote = (id: SportId): string => {
+    if (id === 'football') return bi('Only for men.', 'ફક્ત પુરુષો માટે.')
+    if (id === 'carrom' || id === 'chess') return bi('Singles only.', 'ફક્ત સિંગલ્સ.')
+    return racketDoublesNote()
+  }
+  const indoorCards = ALL_SPORT_IDS.filter((id) => isSportEnabled(id))
+    .map((id) => disclaimerSport(sportBi(id), id, indoorNote(id)))
+    .join('')
   return `
     <div class="disclaimer" data-lang="${uiLang}" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title">
       <div class="disclaimer-card">
@@ -2075,84 +2227,59 @@ function disclaimerHtml(): string {
             )}</li>
           </ul>
 
+          ${
+            rules.length
+              ? `
           <h3>${bi('Registration rules', 'નોંધણીના નિયમો')}</h3>
-          <p class="disclaimer-when">${bi(
-            `${indoor.date} · ${indoor.weekday} · 4:00 PM to 11:00 PM`,
-            `${indoor.dateGu} · ${indoor.weekdayGu} · સાંજે 4 વાગ્યાથી રાત્રે 11 વાગ્યા સુધી`,
-          )}</p>
+          ${
+            indoorOpen()
+              ? `<p class="disclaimer-when">${bi(
+                  `${indoor.date} · ${indoor.weekday} · 4:00 PM to 11:00 PM`,
+                  `${indoor.dateGu} · ${indoor.weekdayGu} · સાંજે 4 વાગ્યાથી રાત્રે 11 વાગ્યા સુધી`,
+                )}</p>`
+              : ''
+          }
           <ol class="disclaimer-points is-numbered">
-            <li>${bi(
-              'From Pickleball and Football, choose only one sport.',
-              'પિકલબોલ અને ફૂટબોલમાંથી કોઈ પણ એક જ રમત પસંદ કરવાની રહેશે.',
-            )}</li>
-            <li>${bi(
-              'From Badminton, Chess, Carrom and Table Tennis, choose any two sports.',
-              'બેડમિન્ટન, ચેસ, કેરમ અને ટેબલ ટેનિસમાંથી કોઈ પણ બે રમતો પસંદ કરી શકાશે.',
-            )}</li>
-            <li>${bi(
-              'Pickleball, Badminton and Table Tennis are played with doubles only: only men’s doubles and women’s doubles. No mixed doubles.',
-              'પિકલબોલ, બેડમિન્ટન અને ટેબલ ટેનિસ ફક્ત ડબલ્સમાં રમાશે: ફક્ત પુરુષ ડબલ્સ અને મહિલા ડબલ્સ. મિક્સ ડબલ્સ નથી.',
-            )}</li>
-            <li>${bi(
-              'Table Tennis, Badminton and Pickleball: if you do not have a second player, we will provide one. Please fill the form. Please wait for our response. You cannot choose the partner — you play with the partner the organizer assigns.',
-              'ટેબલ ટેનિસ, બેડમિન્ટન અને પિકલબોલ: જો બીજો ખેલાડી ન હોય, તો અમે આપીશું. કૃપા કરીને ફોર્મ ભરો. કૃપા કરીને અમારા જવાબની રાહ જુઓ. તમે પાર્ટનર પસંદ કરી શકતા નથી — આયોજક જે પાર્ટનર આપે તેની સાથે રમવું પડશે.',
-            )}</li>
-            <li>${bi(
-              'If you already have a partner, choose Double and enter their details.',
-              'પાર્ટનર હોય તો ડબલ પસંદ કરીને વિગત દાખલ કરો.',
-            )}</li>
-          </ol>
+            ${rules.map((rule) => `<li>${rule}</li>`).join('')}
+          </ol>`
+              : ''
+          }
 
-          <h3>${bi('Indoor sports', 'ઇન્ડોર રમતો')}</h3>
+          ${
+            indoorOpen()
+              ? `<h3>${bi('Indoor sports', 'ઇન્ડોર રમતો')}</h3>${indoorCards}`
+              : ''
+          }
 
-          ${disclaimerSport(
-            sportBi('football'),
-            'football',
-            bi('Only for men.', 'ફક્ત પુરુષો માટે.'),
-          )}
-          ${disclaimerSport(
-            sportBi('pickleball'),
-            'pickleball',
-            racketDoublesNote(),
-          )}
-          ${disclaimerSport(
-            sportBi('carrom'),
-            'carrom',
-            bi('Singles only.', 'ફક્ત સિંગલ્સ.'),
-          )}
-          ${disclaimerSport(
-            sportBi('chess'),
-            'chess',
-            bi('Singles only.', 'ફક્ત સિંગલ્સ.'),
-          )}
-          ${disclaimerSport(
-            sportBi('tt'),
-            'tt',
-            racketDoublesNote(),
-          )}
-          ${disclaimerSport(
-            sportBi('badminton'),
-            'badminton',
-            racketDoublesNote(),
-          )}
-
-          <h3>${bi('Cricket', 'ક્રિકેટ')}</h3>
-          ${disclaimerSport(
-            bi(turf.title, turf.titleGu),
-            'turf',
-            bi(
-              `${turf.date} · ${turf.weekday}. Open for men and women.`,
-              `${turf.dateGu} · ${turf.weekdayGu}. પુરુષો અને મહિલાઓ બંને માટે.`,
-            ),
-          )}
-          ${disclaimerSport(
-            bi(overarm.title, overarm.titleGu),
-            'overarm',
-            bi(
-              `${overarm.date} · ${overarm.weekday}. Only for men.`,
-              `${overarm.dateGu} · ${overarm.weekdayGu}. ફક્ત પુરુષો માટે.`,
-            ),
-          )}
+          ${
+            cricketOpen()
+              ? `<h3>${bi('Cricket', 'ક્રિકેટ')}</h3>
+          ${
+            isSportEnabled('turf')
+              ? disclaimerSport(
+                  bi(turf.title, turf.titleGu),
+                  'turf',
+                  bi(
+                    `${turf.date} · ${turf.weekday}. Open for men and women.`,
+                    `${turf.dateGu} · ${turf.weekdayGu}. પુરુષો અને મહિલાઓ બંને માટે.`,
+                  ),
+                )
+              : ''
+          }
+          ${
+            isSportEnabled('overarm')
+              ? disclaimerSport(
+                  bi(overarm.title, overarm.titleGu),
+                  'overarm',
+                  bi(
+                    `${overarm.date} · ${overarm.weekday}. Only for men.`,
+                    `${overarm.dateGu} · ${overarm.weekdayGu}. ફક્ત પુરુષો માટે.`,
+                  ),
+                )
+              : ''
+          }`
+              : ''
+          }
 
           <div class="disclaimer-note">
             <p class="disclaimer-note-title">${bi('Please note', 'નોંધ')}</p>
@@ -2189,11 +2316,11 @@ function mountDisclaimer(): void {
 
 function renderBegin(): string {
   const indoor = eventById('indoor')
-  return `
-    <div class="fade-step gate-step">
-      <h2 class="step-title">${bi('Choose your registration', 'તમારી નોંધણી પસંદ કરો')}</h2>
-      ${beginError ? `<div class="alert is-error">${bilingualHtml(beginError)}</div>` : ''}
-      <div class="gate-grid">
+  const showIndoor = indoorOpen()
+  const showCricket = cricketOpen()
+  const tiles = indoor.sports.filter((sport) => sport.sportId && isSportEnabled(sport.sportId))
+  const indoorCard = showIndoor
+    ? `
         <button type="button" class="gate-card ${pickIndoor ? 'is-selected' : ''}" data-action="toggle-indoor">
           <span class="gate-banner">
             <span>
@@ -2207,7 +2334,7 @@ function renderBegin(): string {
             <span class="gate-title">${bi('Indoor', 'ઇન્ડોર')}</span>
             <span class="gate-label">${bi('Sports on this day', 'આ દિવસની રમતો')}</span>
             <span class="sport-tiles">
-              ${indoor.sports
+              ${tiles
                 .map(
                   (sport) => `
                 <span class="sport-tile">
@@ -2218,55 +2345,85 @@ function renderBegin(): string {
                 .join('')}
             </span>
           </span>
-        </button>
-
-        <div class="gate-and" aria-hidden="true">${bi('And', 'અને')}</div>
-
+        </button>`
+    : ''
+  const cricketCard = showCricket
+    ? `
         <button type="button" class="gate-card ${pickCricket ? 'is-selected' : ''}" data-action="toggle-cricket" data-tone="cricket">
           <span class="gate-banner">
             <span class="cricket-head">
               <span class="gate-banner-title">${bi('Cricket sports', 'ક્રિકેટ સ્પોર્ટ્સ')}</span>
               <span class="cricket-dates">
-                <span class="cricket-date">Turf 10 Jan 2027</span>
-                <span class="cricket-date">Overarm 13 Dec 2026</span>
+                ${isSportEnabled('turf') ? '<span class="cricket-date">Turf 10 Jan 2027</span>' : ''}
+                ${isSportEnabled('overarm') ? '<span class="cricket-date">Overarm 13 Dec 2026</span>' : ''}
               </span>
             </span>
             <span class="gate-tick" aria-hidden="true"></span>
           </span>
           <span class="gate-photo" aria-hidden="true"></span>
-        </button>
+        </button>`
+    : ''
+  return `
+    <div class="fade-step gate-step">
+      <h2 class="step-title">${bi('Choose your registration', 'તમારી નોંધણી પસંદ કરો')}</h2>
+      ${beginError ? `<div class="alert is-error">${bilingualHtml(beginError)}</div>` : ''}
+      ${
+        !showIndoor && !showCricket
+          ? `<p class="step-sub">${bi('Registration is closed.', 'નોંધણી બંધ છે.')}</p>`
+          : ''
+      }
+      <div class="gate-grid">
+        ${indoorCard}
+        ${showIndoor && showCricket ? `<div class="gate-and" aria-hidden="true">${bi('And', 'અને')}</div>` : ''}
+        ${cricketCard}
       </div>
-      <div class="actions">
+      ${
+        showIndoor || showCricket
+          ? `<div class="actions">
         <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Next', 'આગળ'))}</button>
-      </div>
+      </div>`
+          : ''
+      }
     </div>
   `
 }
 
 function renderCricketGender(): string {
+  const turfOn = isSportEnabled('turf')
+  const overarmOn = isSportEnabled('overarm')
+  const sub = overarmOn
+    ? bi(
+        'Choose Male or Female first. Overarm is only for men.',
+        'પહેલા પુરુષ અથવા સ્ત્રી પસંદ કરો. ઓવરઆર્મ ફક્ત પુરુષો માટે છે.',
+      )
+    : bi('Choose Male or Female first.', 'પહેલા પુરુષ અથવા સ્ત્રી પસંદ કરો.')
   return `
     <div class="fade-step">
       <h2 class="step-title">${bi('Cricket sports', 'ક્રિકેટ સ્પોર્ટ્સ')}</h2>
-      <p class="step-sub">${bi('Choose Male or Female first. Overarm is only for men.', 'પહેલા પુરુષ અથવા સ્ત્રી પસંદ કરો. ઓવરઆર્મ ફક્ત પુરુષો માટે છે.')}</p>
+      <p class="step-sub">${sub}</p>
       ${cricketGenderError ? `<div class="alert is-error">${bilingualHtml(cricketGenderError)}</div>` : ''}
       <div class="choice-grid ${cricketGenderError ? 'is-invalid' : ''}">
         <button type="button" class="choice choice-gender ${cricketGender === 'male' ? 'is-selected' : ''}" data-action="cricket-gender" data-gender="male">
           <span class="choice-icon-wrap">${iconMale()}</span>
           <span class="choice-copy">
             <span class="choice-title">${bi('Male', GU.male)}</span>
-            ${namedCricketSlot('turf', 'male')}
-            ${namedCricketSlot('overarm', 'male')}
+            ${turfOn ? namedCricketSlot('turf', 'male') : ''}
+            ${overarmOn ? namedCricketSlot('overarm', 'male') : ''}
           </span>
           <span class="choice-check" aria-hidden="true"></span>
         </button>
-        <button type="button" class="choice choice-gender ${cricketGender === 'female' ? 'is-selected' : ''}" data-action="cricket-gender" data-gender="female">
+        ${
+          turfOn
+            ? `<button type="button" class="choice choice-gender ${cricketGender === 'female' ? 'is-selected' : ''}" data-action="cricket-gender" data-gender="female">
           <span class="choice-icon-wrap">${iconFemale()}</span>
           <span class="choice-copy">
             <span class="choice-title">${bi('Female', GU.female)}</span>
             ${namedCricketSlot('turf', 'female')}
           </span>
           <span class="choice-check" aria-hidden="true"></span>
-        </button>
+        </button>`
+            : ''
+        }
       </div>
       <div class="actions">
         <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
@@ -2280,19 +2437,26 @@ function renderCricketChoice(): string {
   const turf = eventById('turf')
   const overarm = eventById('overarm')
   const female = cricketGender === 'female'
-  const sub = female
-    ? bi('Overarm is only for men. Select Turf.', 'ઓવરઆર્મ ફક્ત પુરુષો માટે છે. ટર્ફ પસંદ કરો.')
-    : bi(
-        'Select Turf, Overarm, or both. The player form is filled once.',
-        'ટર્ફ, ઓવરઆર્મ, અથવા બંને પસંદ કરો. ખેલાડીનું ફોર્મ એક જ વાર ભરાશે.',
-      )
+  const turfOn = isSportEnabled('turf')
+  const overarmOn = isSportEnabled('overarm') && !female
+  const sub =
+    turfOn && overarmOn
+      ? bi(
+          'Select Turf, Overarm, or both. The player form is filled once.',
+          'ટર્ફ, ઓવરઆર્મ, અથવા બંને પસંદ કરો. ખેલાડીનું ફોર્મ એક જ વાર ભરાશે.',
+        )
+      : turfOn
+        ? bi('Select Turf. The player form is filled once.', 'ટર્ફ પસંદ કરો. ખેલાડીનું ફોર્મ એક જ વાર ભરાશે.')
+        : bi('Select Overarm. The player form is filled once.', 'ઓવરઆર્મ પસંદ કરો. ખેલાડીનું ફોર્મ એક જ વાર ભરાશે.')
   return `
     <div class="fade-step">
       <h2 class="step-title">${bi('Cricket sports', 'ક્રિકેટ સ્પોર્ટ્સ')}</h2>
       <p class="step-sub">${sub}</p>
       ${cricketChoiceError ? `<div class="alert is-error">${bilingualHtml(cricketChoiceError)}</div>` : ''}
       <div class="choice-grid ${cricketChoiceError ? 'is-invalid' : ''}">
-        <button type="button" class="choice choice-dated ${pickTurf ? 'is-selected' : ''}" data-action="cricket-kind" data-kind="turf" data-tone="turf">
+        ${
+          turfOn
+            ? `<button type="button" class="choice choice-dated ${pickTurf ? 'is-selected' : ''}" data-action="cricket-kind" data-kind="turf" data-tone="turf">
           <span class="choice-datebar">
             <span class="cricket-date">Turf ${turf.day} ${turf.month} ${turf.year}</span>
             <span class="choice-check" aria-hidden="true"></span>
@@ -2301,11 +2465,12 @@ function renderCricketChoice(): string {
           <span class="choice-slots">
             ${cricketSlotHtml('turf', female ? 'female' : 'male')}
           </span>
-        </button>
+        </button>`
+            : ''
+        }
         ${
-          female
-            ? ''
-            : `<button type="button" class="choice choice-dated ${pickOverarm ? 'is-selected' : ''}" data-action="cricket-kind" data-kind="overarm" data-tone="overarm">
+          overarmOn
+            ? `<button type="button" class="choice choice-dated ${pickOverarm ? 'is-selected' : ''}" data-action="cricket-kind" data-kind="overarm" data-tone="overarm">
           <span class="choice-datebar">
             <span class="cricket-date">Overarm ${overarm.day} ${overarm.month} ${overarm.year}</span>
             <span class="choice-check" aria-hidden="true"></span>
@@ -2315,6 +2480,7 @@ function renderCricketChoice(): string {
             ${cricketSlotHtml('overarm', 'male')}
           </span>
         </button>`
+            : ''
         }
       </div>
       <div class="actions">
@@ -3091,6 +3257,7 @@ function renderBody(): string {
 }
 
 function render(): void {
+  pruneDisabledSelections()
   setActiveEvent(pickIndoor ? 'indoor' : null)
 
   const phase = currentPhase()
@@ -3472,10 +3639,12 @@ function bindEvents(): void {
     btn.addEventListener('click', () => {
       const action = btn.dataset.action
       if (action === 'toggle-indoor') {
+        if (!indoorOpen()) return
         pickIndoor = !pickIndoor
         beginError = ''
         render()
       } else if (action === 'toggle-cricket') {
+        if (!cricketOpen()) return
         pickCricket = !pickCricket
         if (!pickCricket) {
           pickTurf = false
@@ -3485,6 +3654,7 @@ function bindEvents(): void {
         beginError = ''
         render()
       } else if (action === 'cricket-kind' && (btn.dataset.kind === 'turf' || btn.dataset.kind === 'overarm')) {
+        if (!isSportEnabled(btn.dataset.kind)) return
         if (btn.dataset.kind === 'overarm' && cricketGender === 'female') return
         if (btn.dataset.kind === 'turf') pickTurf = !pickTurf
         else pickOverarm = !pickOverarm
@@ -3574,9 +3744,19 @@ async function boot(): Promise<void> {
     refreshCricketCapacities(),
     refreshAgeLimits(),
     refreshFees(),
+    refreshSportAvailability(),
   ])
+  let seenAvailability = sportAvailabilityRevision()
   connectRealtime()
   onRealtimeUpdate(() => {
+    const next = sportAvailabilityRevision()
+    if (!isAdminRoute() && next !== seenAvailability) {
+      seenAvailability = next
+      pruneDisabledSelections()
+      render()
+      return
+    }
+    seenAvailability = next
     syncLiveSeats()
   })
   window.addEventListener('hashchange', () => {

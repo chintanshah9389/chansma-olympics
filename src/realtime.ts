@@ -4,6 +4,7 @@ import {
   refreshCricketCapacities,
   refreshFees,
   refreshRegistrations,
+  refreshSportAvailability,
 } from './storage'
 
 type RealtimeListener = () => void
@@ -43,6 +44,7 @@ async function handleUpdate(_type?: string): Promise<void> {
     refreshCricketCapacities(),
     refreshAgeLimits(),
     refreshFees(),
+    refreshSportAvailability(),
   ])
   notify()
 }
@@ -86,6 +88,7 @@ export function connectRealtime(): void {
         data.type === 'cricket-capacities-updated' ||
         data.type === 'age-limits-updated' ||
         data.type === 'fees-updated' ||
+        data.type === 'sport-availability-updated' ||
         data.type === 'connected'
       ) {
         void handleUpdate(data.type)
