@@ -2376,11 +2376,18 @@ function renderDone(): string {
     <div class="fade-step success-screen">
       <article class="receipt" id="receipt-sheet">
         <header class="receipt-brand">
-          <img src="/chanasma-logo.png" alt="શ્રી ચાણસ્મા જૈન યુવા યુથ" />
-          <div>
-            <p class="receipt-kicker">CHANASMA OLYMPIC</p>
-            <p class="receipt-sponsor">${bi('Main sponsor', 'મુખ્ય પ્રાયોજક')} · Jarin Bhai</p>
-          </div>
+          <img class="receipt-logo" src="/chanasma-logo.png" alt="શ્રી ચાણસ્મા જૈન યુવા યુથ" />
+          <p class="receipt-wordmark"><span>CHANASMA</span><span>OLYMPIC</span></p>
+          <svg class="receipt-rings" viewBox="0 0 168 36" width="168" height="36" aria-hidden="true">
+            <g fill="none" stroke-width="3.2">
+              <circle cx="16" cy="18" r="12" stroke="#0085c7" />
+              <circle cx="46" cy="18" r="12" stroke="#f4c300" />
+              <circle cx="76" cy="18" r="12" stroke="#111111" />
+              <circle cx="106" cy="18" r="12" stroke="#009f3d" />
+              <circle cx="136" cy="18" r="12" stroke="#df0024" />
+            </g>
+          </svg>
+          <p class="receipt-sponsor-pill"><span>Main sponsor</span><strong>Jarin Bhai</strong></p>
         </header>
         <h2>${bi('Payment receipt', 'ચુકવણીની રસીદ')}</h2>
         <p class="receipt-no">${escapeHtml(receiptNo)}</p>

@@ -3996,21 +3996,64 @@ img.sport-icon {
 
 .receipt-brand {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.8rem;
+  text-align: center;
+  gap: 0.15rem;
+  margin-bottom: 0.85rem;
 }
 
-.receipt-brand img {
-  width: 3.4rem;
-  height: 3.4rem;
+.receipt-logo {
+  display: block;
+  width: 5.4rem;
+  height: auto;
   object-fit: contain;
 }
 
-.receipt-sponsor {
+.receipt-wordmark {
+  margin: 0.1rem 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: var(--font-display);
+  font-size: 1.85rem;
+  letter-spacing: 0.08em;
+  line-height: 0.88;
+  color: var(--navy);
+}
+
+.receipt-wordmark span:last-child {
+  margin-top: 0.12rem;
+  color: #df0024;
+  font-size: 0.58em;
+  letter-spacing: 0.32em;
+}
+
+.receipt-rings {
+  display: block;
+  width: 8.4rem;
+  height: auto;
+  margin: 0.2rem 0 0.15rem;
+}
+
+.receipt-sponsor-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   margin: 0.15rem 0 0;
-  color: var(--muted);
-  font-size: 0.82rem;
+  padding: 0.22rem 0.7rem 0.22rem 0.55rem;
+  border-radius: 999px;
+  background: var(--navy);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.receipt-sponsor-pill strong {
+  color: var(--gold-bright);
+  letter-spacing: 0.12em;
 }
 
 .receipt-paid {
@@ -4469,11 +4512,7 @@ img.sport-icon {
   }
 
   .receipt-brand {
-    align-items: flex-start;
-  }
-
-  .receipt-brand > div {
-    min-width: 0;
+    align-items: center;
   }
 
   .receipt-paid,
