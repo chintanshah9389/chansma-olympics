@@ -112,9 +112,14 @@ export function organizerAssignsPartner(id: SportId): boolean {
   return id === 'tt' || id === 'badminton' || id === 'pickleball'
 }
 
+/** Carrom and Chess are singles only — no partner and no doubles choice. */
+export function singlesOnlySport(id: SportId): boolean {
+  return id === 'carrom' || id === 'chess'
+}
+
 /** Singles/team sports that still require player name + mobile (no Single/Double UI) */
 export function needsPlayerDetailsOnly(id: SportId): boolean {
-  return id === 'football' || id === 'carrom' || id === 'chess'
+  return id === 'football' || singlesOnlySport(id)
 }
 
 /** Any sport that shows on the format / player-details step */

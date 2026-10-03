@@ -1614,6 +1614,15 @@ button.pick-box:hover,
   margin-bottom: 0.2rem;
 }
 
+.choice-rule {
+  display: block;
+  margin: -0.05rem 0 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.3;
+  color: var(--navy);
+}
+
 .choice-meta {
   display: block;
   font-size: 0.8rem;

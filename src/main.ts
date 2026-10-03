@@ -49,6 +49,7 @@ import {
   needsPlayerDetails,
   needsPlayerDetailsOnly,
   organizerAssignsPartner,
+  singlesOnlySport,
   sportCapacity,
   sportLabel,
 } from './sports'
@@ -1592,6 +1593,11 @@ function renderChoice(
       <span class="choice-icon-wrap">${sportIcon(id)}</span>
       <span class="choice-check" aria-hidden="true"></span>
       <span class="choice-title">${sportBi(id)}</span>
+      ${
+        singlesOnlySport(id)
+          ? `<span class="choice-rule">${bi('Singles only', 'ફક્ત સિંગલ્સ')}</span>`
+          : ''
+      }
       <span class="${metaClass}" data-slot-sport="${id}">${meta}</span>
     </button>
   `
@@ -1851,7 +1857,9 @@ function renderStep3(): string {
           ${
             organizerAssignsPartner(id)
               ? `<p class="format-rule">${racketDoublesNote()}</p>`
-              : ''
+              : singlesOnlySport(id)
+                ? `<p class="format-rule">${bi('Singles only.', 'ફક્ત સિંગલ્સ.')}</p>`
+                : ''
           }
           ${
             playerOnly
@@ -2062,12 +2070,12 @@ function disclaimerHtml(): string {
           ${disclaimerSport(
             sportBi('carrom'),
             'carrom',
-            bi('No mixed doubles.', 'મિક્સ ડબલ્સ નથી.'),
+            bi('Singles only.', 'ફક્ત સિંગલ્સ.'),
           )}
           ${disclaimerSport(
             sportBi('chess'),
             'chess',
-            bi('No mixed doubles.', 'મિક્સ ડબલ્સ નથી.'),
+            bi('Singles only.', 'ફક્ત સિંગલ્સ.'),
           )}
           ${disclaimerSport(
             sportBi('tt'),
