@@ -1,4 +1,4 @@
-import type { SportId } from './types'
+import type { SeatSportId } from './types'
 import { ALL_SPORT_IDS } from './sports'
 
 export type SportAgeLimit = {
@@ -6,7 +6,9 @@ export type SportAgeLimit = {
   maxAge: number
 }
 
-export type SportAgeLimits = Record<SportId, SportAgeLimit>
+export type SportAgeLimits = Record<SeatSportId, SportAgeLimit>
+
+export const AGE_LIMIT_IDS: SeatSportId[] = [...ALL_SPORT_IDS, 'turf', 'overarm']
 
 export const DEFAULT_SPORT_AGE_LIMIT: SportAgeLimit = {
   minAge: 5,
@@ -15,7 +17,7 @@ export const DEFAULT_SPORT_AGE_LIMIT: SportAgeLimit = {
 
 export function defaultAgeLimits(): SportAgeLimits {
   return Object.fromEntries(
-    ALL_SPORT_IDS.map((id) => [id, { ...DEFAULT_SPORT_AGE_LIMIT }]),
+    AGE_LIMIT_IDS.map((id) => [id, { ...DEFAULT_SPORT_AGE_LIMIT }]),
   ) as SportAgeLimits
 }
 
@@ -40,7 +42,7 @@ export function getAgeLimits(): SportAgeLimits {
   return structuredClone(liveLimits)
 }
 
-export function getSportAgeLimit(sportId: SportId): SportAgeLimit {
+export function getSportAgeLimit(sportId: SeatSportId): SportAgeLimit {
   return { ...(liveLimits[sportId] ?? DEFAULT_SPORT_AGE_LIMIT) }
 }
 
@@ -48,7 +50,7 @@ export function applyAgeLimits(
   input: Partial<SportAgeLimits> | null | undefined,
 ): SportAgeLimits {
   const next = defaultAgeLimits()
-  for (const id of ALL_SPORT_IDS) {
+  for (const id of AGE_LIMIT_IDS) {
     const pair = input?.[id]
     if (pair && typeof pair === 'object') {
       next[id] = clampPair(pair.minAge, pair.maxAge)

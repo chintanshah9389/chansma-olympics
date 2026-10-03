@@ -1,21 +1,38 @@
 import {
+  adminSessionOk,
   bulkDeleteRegistrations,
+  clearAdminToken,
   deleteRegistration,
+  getAdminRole,
+  getAdminToken,
   getRegistrations,
   getStorageError,
+  loginAdmin,
   normalizeMobile,
   parseAge,
   refreshAgeLimits,
   refreshCapacities,
+  refreshCricketCapacities,
+  refreshFees,
   refreshRegistrations,
+  refreshSportAvailability,
   resetRegistrations,
   sanitizeMobileInput,
   saveAgeLimits,
   saveCapacities,
+  saveCricketCapacities,
+  saveFees,
+  saveSportAvailability,
   seatWeight,
   updateRegistration,
 } from './storage'
-import { applyAgeLimits, getAgeLimits, getSportAgeLimit, type SportAgeLimits } from './ageLimits'
+import { AGE_LIMIT_IDS, applyAgeLimits, getAgeLimits, getSportAgeLimit, type SportAgeLimits } from './ageLimits'
+import {
+  AVAILABILITY_IDS,
+  applySportEnabled,
+  getSportEnabled,
+  type SportEnabledMap,
+} from './sportAvailability'
 import {
   ALL_SPORT_IDS,
   getCapacities,
@@ -25,6 +42,7 @@ import {
 } from './sports'
 import {
   iconArrowLeft,
+  iconCricket,
   iconDownload,
   iconEdit,
   iconRefresh,
@@ -32,10 +50,18 @@ import {
   sportIcon,
   withIcon,
 } from './icons'
+import {
+  eventById,
+  EVENTS,
+  getCricketCapacities,
+  type CricketCapacities,
+} from './events'
+import { getFees, type FeeId } from './fees'
 import type {
   Gender,
   PlayFormat,
   Registration,
+  SeatSportId,
   SelectedSport,
   SportId,
   SportSeatStatus,
@@ -49,7 +75,7 @@ type FlatRow = {
   seatNumber: number | null
 }
 
-type SportFilter = 'all' | SportId
+type SportFilter = 'all' | SeatSportId
 type GenderFilter = 'all' | Gender
 type StatusFilter = 'all' | SportSeatStatus
 
@@ -57,26 +83,82 @@ let capacityDraft: SportCapacities | null = null
 let capacityMessage = ''
 let capacityError = ''
 let capacitySaving = false
+let cricketDraft: CricketCapacities | null = null
+let feeDraft: Record<FeeId, number> | null = null
+let feeMessage = ''
+let feeError = ''
+let feeSaving = false
 let ageDraft: SportAgeLimits | null = null
 let ageMessage = ''
 let ageError = ''
 let ageSaving = false
+let availabilityDraft: SportEnabledMap | null = null
+let availabilityMessage = ''
+let availabilityError = ''
+let availabilitySaving = false
 let tableMessage = ''
 let tableError = ''
 let tableBusy = false
 let selectedKeys = new Set<string>()
-let editTarget: { regId: string; sportId: SportId | null } | null = null
+let editTarget: { regId: string; sportId: SeatSportId | null } | null = null
+let adminAuthed = false
+let adminAuthChecked = !getAdminToken()
+let loginError = ''
+let loginBusy = false
+let sessionCheck: Promise<void> | null = null
+
+function isSuperAdmin(): boolean {
+  return getAdminRole() === 'superadmin'
+}
 
 function rowKey(regId: string, sportId: string | null | undefined): string {
   return `${regId}||${sportId ?? ''}`
 }
 
-function parseRowKey(key: string): { regId: string; sportId: SportId | null } {
+function parseRowKey(key: string): { regId: string; sportId: SeatSportId | null } {
   const [regId, sportId = ''] = key.split('||')
   return {
     regId,
-    sportId: (sportId || null) as SportId | null,
+    sportId: (sportId || null) as SeatSportId | null,
   }
+}
+
+const FEE_ROWS: { id: FeeId; label: string }[] = [
+  { id: 'football', label: 'Football' },
+  { id: 'pickleball', label: 'Pickleball' },
+  { id: 'carrom', label: 'Carrom' },
+  { id: 'chess', label: 'Chess' },
+  { id: 'tt', label: 'Table Tennis' },
+  { id: 'badminton', label: 'Badminton' },
+  { id: 'turf', label: 'Turf cricket' },
+  { id: 'overarm', label: 'Overarm cricket' },
+]
+
+function ensureCricketDraft(): CricketCapacities {
+  if (!cricketDraft) cricketDraft = getCricketCapacities()
+  return cricketDraft
+}
+
+function syncCricketDraftFromLive(): void {
+  cricketDraft = getCricketCapacities()
+}
+
+function ensureFeeDraft(): Record<FeeId, number> {
+  if (!feeDraft) feeDraft = getFees()
+  return feeDraft
+}
+
+function syncFeeDraftFromLive(): void {
+  feeDraft = getFees()
+}
+
+function ensureAvailabilityDraft(): SportEnabledMap {
+  if (!availabilityDraft) availabilityDraft = getSportEnabled()
+  return availabilityDraft
+}
+
+function syncAvailabilityDraftFromLive(): void {
+  availabilityDraft = getSportEnabled()
 }
 
 function ensureCapacityDraft(): SportCapacities {
@@ -97,6 +179,11 @@ function ensureAgeDraft(): SportAgeLimits {
 
 function syncAgeDraftFromLive(): void {
   ageDraft = structuredClone(getAgeLimits())
+}
+
+function uploadLink(url: string | undefined, label: string): string {
+  if (!url || !url.startsWith('/uploads/')) return ''
+  return `<a class="upload-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`
 }
 
 function escapeHtml(value: string): string {
@@ -120,7 +207,13 @@ function formatLabel(
   format: SelectedSport['format'],
   sportId: SelectedSport['sportId'],
 ): string {
-  if (sportId === 'football') return 'Team'
+  if (sportId === 'football' || sportId === 'turf' || sportId === 'overarm') return 'Team'
+  if (
+    (sportId === 'tt' || sportId === 'badminton' || sportId === 'pickleball') &&
+    format !== 'double'
+  ) {
+    return 'Organizer assigns partner'
+  }
   if (format === 'double') return 'Doubles'
   return 'Singles'
 }
@@ -141,10 +234,12 @@ function createdAtMs(iso: string): number {
   return Number.isNaN(t) ? 0 : t
 }
 
-function sportOrderIndex(id: SportId | undefined): number {
+function sportOrderIndex(id: string | undefined): number {
   if (!id) return ALL_SPORT_IDS.length
-  const idx = ALL_SPORT_IDS.indexOf(id)
-  return idx === -1 ? ALL_SPORT_IDS.length : idx
+  if (id === 'turf') return ALL_SPORT_IDS.length
+  if (id === 'overarm') return ALL_SPORT_IDS.length + 1
+  const idx = ALL_SPORT_IDS.indexOf(id as SportId)
+  return idx === -1 ? ALL_SPORT_IDS.length + 2 : idx
 }
 
 /** Flatten registrations, then number seat units Confirmed/Waiting per sport+gender (oldest first). Doubles occupy 2 units. */
@@ -163,7 +258,7 @@ function flattenRows(regs: Registration[]): FlatRow[] {
   const buckets = new Map<string, FlatRow[]>()
   for (const row of rows) {
     if (!row.sport) continue
-    const key = `${row.sport.sportId}:${row.registration.gender}:${row.sport.status ?? 'confirmed'}`
+    const key = `${row.registration.event || 'indoor'}|${row.sport.sportId}|${row.registration.gender}|${row.sport.status ?? 'confirmed'}`
     const list = buckets.get(key)
     if (list) list.push(row)
     else buckets.set(key, [row])
@@ -190,6 +285,14 @@ function flattenRows(regs: Registration[]): FlatRow[] {
 /** Confirmed 1…N then Waiting 1…N within each sport (+ gender when not filtered). */
 function sortSeatRows(rows: FlatRow[]): FlatRow[] {
   return [...rows].sort((a, b) => {
+    const eventOrder = (id: string | undefined) => {
+      const idx = EVENTS.findIndex((event) => event.id === id)
+      return idx === -1 ? 1 : idx
+    }
+    const eventDiff =
+      eventOrder(a.registration.event) - eventOrder(b.registration.event)
+    if (eventDiff !== 0) return eventDiff
+
     const sportDiff =
       sportOrderIndex(a.sport?.sportId) - sportOrderIndex(b.sport?.sportId)
     if (sportDiff !== 0) return sportDiff
@@ -226,11 +329,16 @@ function matchesQuery(row: FlatRow, q: string): boolean {
     r.mobile,
     r.location,
     r.gender,
+    eventById(r.event).title,
     genderLabel(r.gender),
     s ? sportLabel(s.sportId) : '',
     s?.format ?? '',
     s?.status ?? '',
     statusLabel(row),
+    s?.skill ?? '',
+    s?.birthDate ?? '',
+    r.receiptNo ?? '',
+    r.paidTo ?? '',
     s?.player1Name ?? '',
     s?.player1Mobile ?? '',
     s?.player1Age != null ? String(s.player1Age) : '',
@@ -275,7 +383,8 @@ function rowHtml(row: FlatRow, index: number): string {
       </td>
       <td class="col-num">${index + 1}</td>
       <td class="col-seat"><span class="status-pill ${statusClass}">${escapeHtml(statusLabel(row))}</span></td>
-      <td class="col-sport">${s ? escapeHtml(sportLabel(s.sportId)) : '—'}</td>
+      <td class="col-event">${escapeHtml(eventById(r.event).title)}</td>
+      <td class="col-sport">${s ? escapeHtml(s.skill ? `${sportLabel(s.sportId)} · ${s.skill}` : sportLabel(s.sportId)) : '—'}</td>
       <td>${escapeHtml(r.fullName)}</td>
       <td>${escapeHtml(genderLabel(r.gender))}</td>
       <td>${s ? escapeHtml(formatLabel(s.format, s.sportId)) : '—'}</td>
@@ -287,7 +396,7 @@ function rowHtml(row: FlatRow, index: number): string {
       <td>${escapeHtml(s?.player2Name || '—')}</td>
       <td>${escapeHtml(s?.player2Mobile || '—')}</td>
       <td>${escapeHtml(s?.player2Age != null ? String(s.player2Age) : '—')}</td>
-      <td class="col-ref"><code>${escapeHtml(r.id)}</code></td>
+      <td class="col-ref"><code>${escapeHtml(r.receiptNo || r.id)}</code>${r.payMode ? `<div class="pay-note">${escapeHtml(r.payMode === 'cash' ? `Cash · ${r.paidTo || '—'}` : `Online${r.amount ? ` · ₹${r.amount}` : ''}`)}</div>` : ''}${uploadLink(s?.photoUrl, 'Player photo')}${uploadLink(r.paymentShotUrl, 'Payment screenshot')}</td>
       <td class="col-when">${escapeHtml(formatWhen(r.createdAt))}</td>
       <td class="col-actions">
         <button type="button" class="btn btn-ghost btn-table" data-edit-row="${escapeHtml(key)}" ${tableBusy ? 'disabled' : ''}>${withIcon(iconEdit(), 'Edit')}</button>
@@ -339,11 +448,26 @@ function editModalHtml(): string {
               <input type="text" value="${escapeHtml(sportLabel(sport.sportId))}" disabled />
             </label>
             <label>Format
-              <select name="format">
+              ${
+                sport.sportId === 'turf' || sport.sportId === 'overarm'
+                  ? `<input type="text" value="Team" disabled />`
+                  : `<select name="format">
                 <option value="single" ${sport.format !== 'double' ? 'selected' : ''}>Singles / Team</option>
                 <option value="double" ${sport.format === 'double' ? 'selected' : ''}>Doubles</option>
-              </select>
+              </select>`
+              }
             </label>
+            ${
+              sport.sportId === 'turf' || sport.sportId === 'overarm'
+                ? `<label>Skill
+              <select name="skill">
+                <option value="batsman" ${sport.skill === 'batsman' ? 'selected' : ''}>Batsman</option>
+                <option value="bowler" ${sport.skill === 'bowler' ? 'selected' : ''}>Bowler</option>
+                <option value="allrounder" ${sport.skill === 'allrounder' ? 'selected' : ''}>All Rounder</option>
+              </select>
+            </label>`
+                : ''
+            }
             <label>Player 1 name
               <input name="player1Name" type="text" value="${escapeHtml(sport.player1Name ?? '')}" />
             </label>
@@ -378,7 +502,7 @@ function editModalHtml(): string {
 
 async function removeSportOrRegistration(
   regId: string,
-  sportId: SportId | null,
+  sportId: SeatSportId | null,
 ): Promise<void> {
   const reg = getRegistrations().find((r) => r.id === regId)
   if (!reg) return
@@ -404,10 +528,16 @@ async function afterTableChange(
   await Promise.all([
     refreshRegistrations(),
     refreshCapacities(),
+    refreshCricketCapacities(),
     refreshAgeLimits(),
+    refreshFees(),
+    refreshSportAvailability(),
   ])
   syncCapacityDraftFromLive()
+  syncCricketDraftFromLive()
   syncAgeDraftFromLive()
+  syncFeeDraftFromLive()
+  syncAvailabilityDraftFromLive()
   tableMessage = message
   tableError = ''
   tableBusy = false
@@ -415,27 +545,60 @@ async function afterTableChange(
 }
 
 function csvEscape(value: string): string {
-  if (/[",\n\r]/.test(value)) return `"${value.replaceAll('"', '""')}"`
-  return value
+  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value
+  if (/[",\n\r]/.test(safe)) return `"${safe.replaceAll('"', '""')}"`
+  return safe
+}
+
+function absoluteUploadUrl(url: string | undefined): string {
+  if (!url) return ''
+  if (/^https?:\/\//i.test(url)) return url
+  if (url.startsWith('/')) return `${window.location.origin}${url}`
+  return url
+}
+
+function skillLabel(skill: string | undefined): string {
+  if (skill === 'batsman') return 'Batsman'
+  if (skill === 'bowler') return 'Bowler'
+  if (skill === 'allrounder') return 'All Rounder'
+  return skill ?? ''
+}
+
+function payModeLabel(mode: Registration['payMode']): string {
+  if (mode === 'online') return 'Online'
+  if (mode === 'cash') return 'Cash'
+  return ''
 }
 
 function downloadCsv(rows: FlatRow[]): void {
   const headers = [
     '#',
     'Seat',
+    'Event',
     'Sport',
+    'Skill',
     'Full Name',
+    'Father / Spouse',
+    'Grandfather',
+    'Surname',
     'Gender',
     'Format',
     'Mobile',
     'Location',
+    'Birth Date',
     'Player 1 Name',
     'Player 1 Mobile',
     'Player 1 Age',
     'Player 2 Name',
     'Player 2 Mobile',
     'Player 2 Age',
-    'Reference',
+    'Receipt',
+    'Payment Mode',
+    'Paid To',
+    'Amount',
+    'Player Photo URL',
+    'Payment Screenshot URL',
+    'Registration ID',
     'Registered At',
   ]
 
@@ -447,18 +610,30 @@ function downloadCsv(rows: FlatRow[]): void {
       return [
         String(i + 1),
         statusLabel(row),
+        eventById(r.event).title,
         s ? sportLabel(s.sportId) : '',
+        skillLabel(s?.skill),
         r.fullName,
+        s?.fatherName ?? '',
+        s?.grandfatherName ?? '',
+        s?.surname ?? '',
         genderLabel(r.gender),
         s ? formatLabel(s.format, s.sportId) : '',
         r.mobile,
         r.location,
+        s?.birthDate ?? '',
         s?.player1Name ?? '',
         s?.player1Mobile ?? '',
         s?.player1Age != null ? String(s.player1Age) : '',
         s?.player2Name ?? '',
         s?.player2Mobile ?? '',
         s?.player2Age != null ? String(s.player2Age) : '',
+        r.receiptNo || r.id,
+        payModeLabel(r.payMode),
+        r.paidTo ?? '',
+        r.amount != null ? String(r.amount) : '',
+        absoluteUploadUrl(s?.photoUrl),
+        absoluteUploadUrl(r.paymentShotUrl),
         r.id,
         r.createdAt,
       ]
@@ -525,7 +700,110 @@ export function destroyAdmin(): void {
   adminRoot = null
 }
 
+function renderLogin(root: HTMLElement): void {
+  root.innerHTML = `
+    <a class="nav-corner nav-corner-left" href="#/">${iconArrowLeft()} Form</a>
+    <div class="shell">
+      <header class="brand">
+        <img class="brand-logo" src="/chanasma-logo.png" alt="શ્રી ચાણસ્મા જૈન યુવા યુથ" />
+        <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
+        <div class="olympic-rings" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+        <p>Admin sign in</p>
+        <div class="brand-sponsor"><span>Main sponsor</span><strong>Jarin Bhai</strong></div>
+      </header>
+      <main class="panel">
+        <div class="panel-body">
+          <form class="admin-login" data-admin-login>
+            <h2 class="step-title">Admin login</h2>
+            <p class="step-sub">Enter the username and password to open the dashboard.</p>
+            ${
+              !adminAuthChecked
+                ? `<p class="step-sub">Checking your session…</p>`
+                : ''
+            }
+            ${
+              loginError
+                ? `<div class="alert is-error">${escapeHtml(loginError)}</div>`
+                : ''
+            }
+            <div class="field">
+              <label for="admin-username">Username</label>
+              <input id="admin-username" name="username" type="text" autocomplete="username" required ${loginBusy ? 'disabled' : ''} />
+            </div>
+            <div class="field">
+              <label for="admin-password">Password</label>
+              <input id="admin-password" name="password" type="password" autocomplete="current-password" required ${loginBusy ? 'disabled' : ''} />
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn btn-gold" ${loginBusy || !adminAuthChecked ? 'disabled' : ''}>
+                ${loginBusy ? 'Signing in…' : 'Sign in'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </main>
+    </div>
+  `
+
+  root.querySelector<HTMLFormElement>('[data-admin-login]')?.addEventListener('submit', (event) => {
+    event.preventDefault()
+    const form = event.currentTarget
+    if (!(form instanceof HTMLFormElement)) return
+    const data = new FormData(form)
+    const username = String(data.get('username') || '').trim()
+    const password = String(data.get('password') || '')
+    loginBusy = true
+    loginError = ''
+    renderLogin(root)
+    void loginAdmin(username, password)
+      .then(async () => {
+        adminAuthed = true
+        adminAuthChecked = true
+        loginBusy = false
+        await Promise.all([
+          refreshRegistrations(),
+          refreshCapacities(),
+          refreshAgeLimits(),
+          refreshSportAvailability(),
+        ])
+        syncAvailabilityDraftFromLive()
+        renderAdmin(root)
+      })
+      .catch((error) => {
+        adminAuthed = false
+        loginBusy = false
+        loginError =
+          error instanceof Error ? error.message : 'Incorrect username or password'
+        renderLogin(root)
+      })
+  })
+}
+
+function ensureAdminSession(root: HTMLElement): void {
+  if (adminAuthed || sessionCheck || !getAdminToken()) return
+  sessionCheck = adminSessionOk()
+    .then((ok) => {
+      adminAuthed = ok
+      adminAuthChecked = true
+      sessionCheck = null
+      if (isAdminRoute()) renderAdmin(root)
+    })
+    .catch(() => {
+      adminAuthed = false
+      adminAuthChecked = true
+      sessionCheck = null
+      clearAdminToken()
+      if (isAdminRoute()) renderLogin(root)
+    })
+}
+
 export function renderAdmin(root: HTMLElement): void {
+  if (!adminAuthed) {
+    ensureAdminSession(root)
+    renderLogin(root)
+    return
+  }
+
   ensureAdminRealtime(root)
 
   const apiError = getStorageError()
@@ -578,17 +856,60 @@ export function renderAdmin(root: HTMLElement): void {
 
   root.innerHTML = `
     <a class="nav-corner nav-corner-left" href="#/">${iconArrowLeft()} Form</a>
+    <button type="button" class="nav-corner nav-corner-right" data-admin="logout">Log out</button>
 
     <div class="shell shell-admin">
       <header class="brand brand-admin">
-        <div class="brand-mark">
-          <div class="brand-ring" aria-hidden="true"></div>
-        </div>
-        <h1>CHANSMA OLYMPIC</h1>
-        <p>Admin dashboard · all registrations</p>
+        <img class="brand-logo" src="/chanasma-logo.png" alt="શ્રી ચાણસ્મા જૈન યુવા યુથ" />
+        <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
+        <p>${isSuperAdmin() ? 'Super admin · full dashboard' : 'Admin dashboard · registrations'}</p>
+        <div class="brand-sponsor"><span>Main sponsor</span><strong>Jarin Bhai</strong></div>
       </header>
 
       <main class="panel panel-admin">
+        ${isSuperAdmin() ? `
+        <section class="capacity-panel">
+          <div class="capacity-top">
+            <div class="capacity-intro">
+              <p class="capacity-kicker">Live settings</p>
+              <h2 class="capacity-title">Sports on the form</h2>
+              <p class="capacity-sub">Turn a sport off to remove it from registration. The name, photo, rules, and price for a closed sport are hidden. Turn it on again to bring it back.</p>
+            </div>
+            <div class="capacity-toolbar">
+              <button type="button" class="btn btn-gold" data-admin="apply-availability" ${availabilitySaving ? 'disabled' : ''}>
+                ${availabilitySaving ? 'Saving…' : 'Apply sports'}
+              </button>
+            </div>
+          </div>
+          ${availabilityError ? `<div class="alert">${escapeHtml(availabilityError)}</div>` : ''}
+          ${availabilityMessage ? `<div class="capacity-ok">${escapeHtml(availabilityMessage)}</div>` : ''}
+          <div class="capacity-table-wrap">
+            <table class="capacity-table">
+              <thead>
+                <tr>
+                  <th scope="col">Sport</th>
+                  <th scope="col">Registration</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${AVAILABILITY_IDS.map((id) => {
+                  const on = ensureAvailabilityDraft()[id] !== false
+                  return `
+                  <tr>
+                    <th scope="row"><span class="sport-heading">${sportIcon(id)} ${sportLabel(id)}</span></th>
+                    <td>
+                      <label class="avail-switch">
+                        <input type="checkbox" data-availability="${id}" ${on ? 'checked' : ''} aria-label="${sportLabel(id)} on the form" />
+                        <span>${on ? 'On' : 'Off'}</span>
+                      </label>
+                    </td>
+                  </tr>`
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="capacity-panel">
           <div class="capacity-top">
             <div class="capacity-intro">
@@ -649,6 +970,36 @@ export function renderAdmin(root: HTMLElement): void {
                   </tr>
                 `
                 }).join('')}
+                ${(() => {
+                  const caps = ensureCricketDraft()
+                  return `
+                  <tr>
+                    <th scope="row"><span class="sport-heading">${iconCricket()} Turf cricket</span></th>
+                    <td>
+                      <input type="number" min="0" step="1"
+                        id="cap-male-turf"
+                        data-cricket-cap="turf" data-cap-gender="male"
+                        value="${caps.turf.male}" aria-label="Turf cricket men" />
+                    </td>
+                    <td>
+                      <input type="number" min="0" step="1"
+                        id="cap-female-turf"
+                        data-cricket-cap="turf" data-cap-gender="female"
+                        value="${caps.turf.female}" aria-label="Turf cricket women" />
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row"><span class="sport-heading">${iconCricket()} Overarm cricket</span></th>
+                    <td>
+                      <input type="number" min="0" step="1"
+                        id="cap-male-overarm"
+                        data-cricket-cap="overarm" data-cap-gender="male"
+                        value="${caps.overarm.male}" aria-label="Overarm cricket men" />
+                    </td>
+                    <td class="cap-na">Men only</td>
+                  </tr>
+                  `
+                })()}
               </tbody>
             </table>
           </div>
@@ -696,7 +1047,7 @@ export function renderAdmin(root: HTMLElement): void {
                 </tr>
               </thead>
               <tbody>
-                ${ALL_SPORT_IDS.map((id) => {
+                ${AGE_LIMIT_IDS.map((id) => {
                   const ages = ensureAgeDraft()[id]
                   return `
                   <tr>
@@ -721,6 +1072,48 @@ export function renderAdmin(root: HTMLElement): void {
           </div>
         </section>
 
+        <section class="capacity-panel">
+          <div class="capacity-top">
+            <div class="capacity-intro">
+              <p class="capacity-kicker">Live settings</p>
+              <h2 class="capacity-title">Entry fees</h2>
+              <p class="capacity-sub">Price per player in rupees. Doubles charge two players. Turf and overarm are one team fee each. The payment page uses these amounts.</p>
+            </div>
+            <div class="capacity-toolbar">
+              <button type="button" class="btn btn-gold" data-admin="apply-fees" ${feeSaving ? 'disabled' : ''}>
+                ${feeSaving ? 'Saving…' : 'Apply prices'}
+              </button>
+            </div>
+          </div>
+          ${feeError ? `<div class="alert">${escapeHtml(feeError)}</div>` : ''}
+          ${feeMessage ? `<div class="capacity-ok">${escapeHtml(feeMessage)}</div>` : ''}
+          <div class="capacity-table-wrap">
+            <table class="capacity-table">
+              <thead>
+                <tr>
+                  <th scope="col">Sport</th>
+                  <th scope="col">Price per player (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${FEE_ROWS.map((row) => `
+                  <tr>
+                    <th scope="row"><span class="sport-heading">${sportIcon(row.id)} ${row.label}</span></th>
+                    <td>
+                      <input type="number" min="0" step="1"
+                        id="fee-${row.id}"
+                        data-fee-id="${row.id}"
+                        value="${ensureFeeDraft()[row.id]}"
+                        aria-label="${row.label} price" />
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </section>
+        ` : ''}
+
         <div class="admin-toolbar">
           <div class="admin-stats">
             <span><strong>${regs.length}</strong> registrations</span>
@@ -741,8 +1134,12 @@ export function renderAdmin(root: HTMLElement): void {
             />
             <button type="button" class="btn btn-ghost" data-admin="refresh" ${tableBusy ? 'disabled' : ''}>${withIcon(iconRefresh(), 'Refresh')}</button>
             <button type="button" class="btn btn-gold" data-admin="csv">${withIcon(iconDownload(), 'Export CSV')}</button>
-            <button type="button" class="btn btn-ghost btn-danger" data-admin="bulk-delete" ${tableBusy || !selectedKeys.size ? 'disabled' : ''}>${withIcon(iconTrash(), `Delete selected (${selectedKeys.size})`)}</button>
-            <button type="button" class="btn btn-ghost btn-danger" data-admin="reset-db" ${tableBusy ? 'disabled' : ''}>Reset DB</button>
+            ${
+              isSuperAdmin()
+                ? `<button type="button" class="btn btn-ghost btn-danger" data-admin="bulk-delete" ${tableBusy || !selectedKeys.size ? 'disabled' : ''}>${withIcon(iconTrash(), `Delete selected (${selectedKeys.size})`)}</button>
+            <button type="button" class="btn btn-ghost btn-danger" data-admin="reset-db" ${tableBusy ? 'disabled' : ''}>Reset DB</button>`
+                : ''
+            }
             ${
               filtersActive
                 ? `<button type="button" class="btn btn-ghost" data-admin="clear">Clear filters</button>`
@@ -770,6 +1167,13 @@ export function renderAdmin(root: HTMLElement): void {
               ${ALL_SPORT_IDS.map((id) =>
                 filterChip(
                   `${sportLabel(id)} (${sportCounts[id]})`,
+                  sportFilter === id,
+                  `data-filter-sport="${id}"`,
+                ),
+              ).join('')}
+              ${(['turf', 'overarm'] as const).map((id) =>
+                filterChip(
+                  `${sportLabel(id)} (${allRows.reduce((n, row) => (row.sport?.sportId === id ? n + 1 : n), 0)})`,
                   sportFilter === id,
                   `data-filter-sport="${id}"`,
                 ),
@@ -810,6 +1214,7 @@ export function renderAdmin(root: HTMLElement): void {
                 </th>
                 <th class="col-num">#</th>
                 <th class="col-seat">Seat</th>
+                <th class="col-event">Event</th>
                 <th class="col-sport">Sport</th>
                 <th>Full name</th>
                 <th>Gender</th>
@@ -831,7 +1236,7 @@ export function renderAdmin(root: HTMLElement): void {
               ${
                 rows.length
                   ? rows.map((row, i) => rowHtml(row, i)).join('')
-                  : `<tr><td colspan="18" class="admin-empty">No rows match these filters.</td></tr>`
+                  : `<tr><td colspan="19" class="admin-empty">No rows match these filters.</td></tr>`
               }
             </tbody>
           </table>
@@ -880,9 +1285,43 @@ export function renderAdmin(root: HTMLElement): void {
     })
   })
 
+  root.querySelectorAll<HTMLInputElement>('[data-cricket-cap]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const kind = input.dataset.cricketCap === 'overarm' ? 'overarm' : 'turf'
+      const gender = input.dataset.capGender === 'female' ? 'female' : 'male'
+      const draft = ensureCricketDraft()
+      const value = Math.max(0, Math.floor(Number(input.value) || 0))
+      if (kind === 'overarm') draft.overarm.male = value
+      else if (gender === 'female') draft.turf.female = value
+      else draft.turf.male = value
+      capacityMessage = ''
+      capacityError = ''
+    })
+  })
+
+  root.querySelectorAll<HTMLInputElement>('[data-availability]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const id = input.dataset.availability as SeatSportId
+      ensureAvailabilityDraft()[id] = input.checked
+      availabilityMessage = ''
+      availabilityError = ''
+      renderAdmin(root)
+    })
+  })
+
+  root.querySelectorAll<HTMLInputElement>('[data-fee-id]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const id = input.dataset.feeId as FeeId
+      const draft = ensureFeeDraft()
+      draft[id] = Math.max(0, Math.floor(Number(input.value) || 0))
+      feeMessage = ''
+      feeError = ''
+    })
+  })
+
   root.querySelectorAll<HTMLInputElement>('[data-age-sport]').forEach((input) => {
     input.addEventListener('input', () => {
-      const sportId = input.dataset.ageSport as SportId
+      const sportId = input.dataset.ageSport as SeatSportId
       const bound = input.dataset.ageBound as 'min' | 'max'
       const draft = ensureAgeDraft()
       const value = Math.max(
@@ -900,14 +1339,30 @@ export function renderAdmin(root: HTMLElement): void {
     btn.addEventListener('click', (event) => {
       event.stopPropagation()
       const action = btn.dataset.admin
+      if (action === 'logout') {
+        clearAdminToken()
+        adminAuthed = false
+        adminAuthChecked = true
+        loginError = ''
+        loginBusy = false
+        destroyAdmin()
+        renderLogin(root)
+        return
+      }
       if (action === 'refresh') {
         void Promise.all([
           refreshRegistrations(),
           refreshCapacities(),
+          refreshCricketCapacities(),
           refreshAgeLimits(),
+          refreshFees(),
+          refreshSportAvailability(),
         ]).then(() => {
           syncCapacityDraftFromLive()
+          syncCricketDraftFromLive()
           syncAgeDraftFromLive()
+          syncFeeDraftFromLive()
+          syncAvailabilityDraftFromLive()
           capacityMessage = ''
           capacityError = ''
           ageMessage = ''
@@ -942,7 +1397,7 @@ export function renderAdmin(root: HTMLElement): void {
           maxAge = swap
         }
         const draft = ensureAgeDraft()
-        for (const id of ALL_SPORT_IDS) {
+        for (const id of AGE_LIMIT_IDS) {
           draft[id] = { minAge, maxAge }
         }
         ageMessage = `Filled all sports to ${minAge}–${maxAge} — click Apply age limits to save.`
@@ -950,7 +1405,7 @@ export function renderAdmin(root: HTMLElement): void {
         renderAdmin(root)
       } else if (action === 'apply-age-limits') {
         const draft = ensureAgeDraft()
-        for (const id of ALL_SPORT_IDS) {
+        for (const id of AGE_LIMIT_IDS) {
           if (draft[id].minAge > draft[id].maxAge) {
             ageError = `${sportLabel(id)}: min age cannot be greater than max age`
             ageMessage = ''
@@ -1073,14 +1528,58 @@ export function renderAdmin(root: HTMLElement): void {
         capacityMessage = `Filled all sports to ${value} men & ${value} women — click Apply to save.`
         capacityError = ''
         renderAdmin(root)
+      } else if (action === 'apply-availability') {
+        availabilitySaving = true
+        availabilityError = ''
+        availabilityMessage = ''
+        renderAdmin(root)
+        void saveSportAvailability(ensureAvailabilityDraft())
+          .then((saved) => {
+            applySportEnabled(saved)
+            syncAvailabilityDraftFromLive()
+            availabilityMessage = 'Saved. Closed sports are hidden on the registration form.'
+            availabilityError = ''
+          })
+          .catch((error) => {
+            availabilityError =
+              error instanceof Error ? error.message : 'Could not save sports'
+            availabilityMessage = ''
+          })
+          .finally(() => {
+            availabilitySaving = false
+            renderAdmin(root)
+          })
+      } else if (action === 'apply-fees') {
+        feeSaving = true
+        feeError = ''
+        feeMessage = ''
+        renderAdmin(root)
+        void saveFees(ensureFeeDraft())
+          .then(() => {
+            syncFeeDraftFromLive()
+            feeMessage = 'Prices saved. The registration form uses these amounts on the payment page.'
+            feeError = ''
+          })
+          .catch((error) => {
+            feeError = error instanceof Error ? error.message : 'Could not save prices'
+            feeMessage = ''
+          })
+          .finally(() => {
+            feeSaving = false
+            renderAdmin(root)
+          })
       } else if (action === 'apply-capacities') {
         capacitySaving = true
         capacityError = ''
         capacityMessage = ''
         renderAdmin(root)
-        void saveCapacities(ensureCapacityDraft())
+        void Promise.all([
+          saveCapacities(ensureCapacityDraft()),
+          saveCricketCapacities(ensureCricketDraft()),
+        ])
           .then(() => {
             syncCapacityDraftFromLive()
+            syncCricketDraftFromLive()
             capacityMessage =
               'Applied. Seats rebalanced by registration time — earlier registrations keep confirmed slots; later ones wait if full. Live badges updated.'
             capacityError = ''
@@ -1202,18 +1701,22 @@ export function renderAdmin(root: HTMLElement): void {
         gender: (String(data.get('gender') || reg.gender) as Gender) || reg.gender,
         sports: reg.sports.map((s) => {
           if (!sportIdRaw || s.sportId !== sportIdRaw) return s
-          const format = (String(data.get('format') || s.format) ||
-            'single') as PlayFormat
+          const cricketSeat = s.sportId === 'turf' || s.sportId === 'overarm'
+          const format = cricketSeat
+            ? 'single'
+            : ((String(data.get('format') || s.format) || 'single') as PlayFormat)
+          const skillRaw = String(data.get('skill') || s.skill || '')
           const updated: SelectedSport = {
             ...s,
             format,
+            skill: cricketSeat ? skillRaw : s.skill,
             player1Name: String(data.get('player1Name') || '').trim(),
             player1Mobile: sanitizeMobileInput(
               String(data.get('player1Mobile') || ''),
             ),
             player1Age: parseAge(
               String(data.get('player1Age') || ''),
-              (sportIdRaw || undefined) as SportId | undefined,
+              (sportIdRaw || undefined) as SeatSportId | undefined,
             ),
             player2Name: String(data.get('player2Name') || '').trim(),
             player2Mobile: sanitizeMobileInput(
@@ -1221,7 +1724,7 @@ export function renderAdmin(root: HTMLElement): void {
             ),
             player2Age: parseAge(
               String(data.get('player2Age') || ''),
-              (sportIdRaw || undefined) as SportId | undefined,
+              (sportIdRaw || undefined) as SeatSportId | undefined,
             ),
           }
           return updated

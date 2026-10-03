@@ -6,6 +6,9 @@ export type SportId =
   | 'tt'
   | 'badminton'
 
+/** Indoor sports plus the two cricket events stored on a registration row. */
+export type SeatSportId = SportId | 'turf' | 'overarm'
+
 export type Gender = 'male' | 'female'
 
 export type PlayFormat = 'single' | 'double'
@@ -34,7 +37,7 @@ export interface DoublesPlayers {
 }
 
 export interface SelectedSport {
-  sportId: SportId
+  sportId: SeatSportId
   format: PlayFormat
   status: SportSeatStatus
   player1Name?: string
@@ -43,16 +46,30 @@ export interface SelectedSport {
   player2Name?: string
   player2Mobile?: string
   player2Age?: number
+  skill?: string
+  birthDate?: string
+  fatherName?: string
+  grandfatherName?: string
+  surname?: string
+  photoUrl?: string
 }
 
 export interface Registration {
   id: string
+  /** Which introduction section this entry belongs to */
+  event: 'overarm' | 'indoor' | 'turf'
   fullName: string
   mobile: string
   location: string
   gender: Gender
   sports: SelectedSport[]
   createdAt: string
+  receiptNo?: string
+  payMode?: '' | 'online' | 'cash'
+  paidTo?: string
+  amount?: number
+  /** Site path such as /uploads/payments/….jpg */
+  paymentShotUrl?: string
 }
 
 export interface FormState {

@@ -1,4 +1,4 @@
-import type { Gender, SportConfig, SportId } from './types'
+import type { Gender, SeatSportId, SportConfig, SportId } from './types'
 
 export type SportCapacityPair = { male: number; female: number }
 export type SportCapacities = Record<SportId, SportCapacityPair>
@@ -97,7 +97,9 @@ export function applyCapacities(capacities: Partial<SportCapacities>): void {
   }
 }
 
-export function sportLabel(id: SportId): string {
+export function sportLabel(id: SeatSportId): string {
+  if (id === 'turf') return 'Turf cricket'
+  if (id === 'overarm') return 'Overarm cricket'
   return SPORTS[id].label
 }
 
@@ -105,9 +107,19 @@ export function needsFormat(id: SportId): boolean {
   return SPORTS[id].needsFormat
 }
 
+/** Single for these sports means the organizer assigns the second player. */
+export function organizerAssignsPartner(id: SportId): boolean {
+  return id === 'tt' || id === 'badminton' || id === 'pickleball'
+}
+
+/** Carrom and Chess are singles only — no partner and no doubles choice. */
+export function singlesOnlySport(id: SportId): boolean {
+  return id === 'carrom' || id === 'chess'
+}
+
 /** Singles/team sports that still require player name + mobile (no Single/Double UI) */
 export function needsPlayerDetailsOnly(id: SportId): boolean {
-  return id === 'football' || id === 'carrom' || id === 'chess'
+  return id === 'football' || singlesOnlySport(id)
 }
 
 /** Any sport that shows on the format / player-details step */
