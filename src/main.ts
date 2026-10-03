@@ -2407,14 +2407,6 @@ function renderDone(): string {
   `
 }
 
-function isIosDevice(): boolean {
-  const ua = navigator.userAgent
-  return (
-    /iPad|iPhone|iPod/i.test(ua) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-  )
-}
-
 function isMobileDevice(): boolean {
   return (
     window.matchMedia('(max-width: 720px)').matches ||
@@ -2422,28 +2414,61 @@ function isMobileDevice(): boolean {
   )
 }
 
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
+}
+
 async function captureReceiptCanvas(
   sheet: HTMLElement,
 ): Promise<HTMLCanvasElement> {
   const { default: html2canvas } = await import('html2canvas-pro')
+  const meta = document.querySelector('meta[name="viewport"]')
+  const previousViewport = meta?.getAttribute('content') ?? ''
   const previousScroll = window.scrollY
-  sheet.scrollIntoView({ block: 'start', behavior: 'auto' })
-  const scale = isMobileDevice() ? 1.5 : 2
+  const previousWidth = sheet.style.width
+  const previousMaxWidth = sheet.style.maxWidth
+  const mobile = isMobileDevice()
+  if (mobile) {
+    meta?.setAttribute('content', 'width=800, initial-scale=1, maximum-scale=1')
+    await nextFrame()
+    await nextFrame()
+  }
+  sheet.style.width = '640px'
+  sheet.style.maxWidth = '640px'
+  window.scrollTo(0, 0)
+  await nextFrame()
   try {
+    if (document.fonts?.ready) await document.fonts.ready
+    await Promise.all(
+      [...sheet.querySelectorAll('img')].map((img) =>
+        img.decode?.().catch(() => undefined) ?? Promise.resolve(),
+      ),
+    )
     const canvas = await html2canvas(sheet, {
       backgroundColor: '#ffffff',
-      scale,
+      scale: 2,
       useCORS: true,
       scrollX: 0,
-      scrollY: -window.scrollY,
-      windowWidth: Math.max(760, document.documentElement.clientWidth),
-      onclone: (doc) => {
-        const copy = doc.getElementById('receipt-sheet')
-        if (!copy) return
+      scrollY: 0,
+      windowWidth: 800,
+      onclone: (_doc, copy) => {
         copy.style.width = '640px'
         copy.style.maxWidth = '640px'
         copy.style.background = '#ffffff'
         copy.style.overflow = 'visible'
+        copy.querySelectorAll('img').forEach((img) => {
+          img.style.maxWidth = '100%'
+          if (
+            img.classList.contains('pay-shot') ||
+            img.classList.contains('entry-photo')
+          ) {
+            img.style.width = '180px'
+            img.style.height = '180px'
+            img.style.objectFit = 'cover'
+          }
+        })
       },
     })
     if (canvas.width < 10 || canvas.height < 10) {
@@ -2451,7 +2476,60 @@ async function captureReceiptCanvas(
     }
     return canvas
   } finally {
+    sheet.style.width = previousWidth
+    sheet.style.maxWidth = previousMaxWidth
+    if (mobile && meta) meta.setAttribute('content', previousViewport)
     window.scrollTo(0, previousScroll)
+  }
+}
+
+function addCanvasPages(
+  pdf: import('jspdf').jsPDF,
+  canvas: HTMLCanvasElement,
+): void {
+  const pageWidth = pdf.internal.pageSize.getWidth()
+  const pageHeight = pdf.internal.pageSize.getHeight()
+  const margin = 28
+  const usableWidth = pageWidth - margin * 2
+  const usableHeight = pageHeight - margin * 2
+  const sliceHeight = Math.max(
+    1,
+    Math.floor((usableHeight * canvas.width) / usableWidth),
+  )
+  let offset = 0
+  let page = 0
+  while (offset < canvas.height && page < 12) {
+    const height = Math.min(sliceHeight, canvas.height - offset)
+    const slice = document.createElement('canvas')
+    slice.width = canvas.width
+    slice.height = height
+    const context = slice.getContext('2d')
+    if (!context) throw new Error('Could not draw the receipt')
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, slice.width, slice.height)
+    context.drawImage(
+      canvas,
+      0,
+      offset,
+      canvas.width,
+      height,
+      0,
+      0,
+      canvas.width,
+      height,
+    )
+    if (page > 0) pdf.addPage()
+    const drawHeight = (height * usableWidth) / canvas.width
+    pdf.addImage(
+      slice.toDataURL('image/jpeg', 0.92),
+      'JPEG',
+      margin,
+      margin,
+      usableWidth,
+      drawHeight,
+    )
+    offset += height
+    page += 1
   }
 }
 
@@ -2485,6 +2563,51 @@ async function savePdfFile(blob: Blob, filename: string): Promise<void> {
   window.setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
+function showReceiptOffer(blob: Blob, filename: string): void {
+  document.querySelector('.receipt-offer')?.remove()
+  const file = new File([blob], filename, { type: 'application/pdf' })
+  const url = URL.createObjectURL(blob)
+  const wrap = document.createElement('div')
+  wrap.className = 'receipt-offer'
+  wrap.innerHTML = `
+    <div class="receipt-offer-card" role="dialog" aria-modal="true">
+      <h3>${bi('Save receipt', 'રસીદ સાચવો')}</h3>
+      <p>${bi('Tap Save, then choose Files, Drive, or WhatsApp.', 'Save દબાવો, પછી Files, Drive અથવા WhatsApp પસંદ કરો.')}</p>
+      <div class="receipt-offer-actions">
+        <button type="button" class="btn btn-gold" data-offer="save">${bi('Save PDF', 'PDF સાચવો')}</button>
+        <button type="button" class="btn btn-ghost" data-offer="close">${bi('Close', 'બંધ કરો')}</button>
+      </div>
+    </div>`
+  const close = () => {
+    wrap.remove()
+    URL.revokeObjectURL(url)
+  }
+  wrap.querySelector<HTMLButtonElement>('[data-offer="close"]')?.addEventListener('click', close)
+  wrap.querySelector<HTMLButtonElement>('[data-offer="save"]')?.addEventListener('click', () => {
+    void (async () => {
+      if (
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [file] })
+      ) {
+        try {
+          await navigator.share({ files: [file], title: 'CHANASMA Olympic receipt' })
+          return
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') return
+        }
+      }
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    })()
+  })
+  document.body.appendChild(wrap)
+}
+
 async function downloadReceipt(): Promise<void> {
   const button = document.querySelector<HTMLButtonElement>(
     '[data-action="download-receipt"]',
@@ -2492,55 +2615,30 @@ async function downloadReceipt(): Promise<void> {
   const sheet = document.getElementById('receipt-sheet')
   const label = button?.innerHTML || ''
   if (!sheet) return
-  const iosPreview = isIosDevice() ? window.open('', '_blank') : null
-  if (iosPreview) {
-    iosPreview.document.title = 'CHANASMA Olympic receipt'
-    iosPreview.document.body.innerHTML =
-      '<p style="font-family:sans-serif;padding:24px">Preparing your receipt…</p>'
-  }
   if (button) {
     button.disabled = true
     button.textContent = 'Preparing…'
   }
+  const preparing = document.createElement('div')
+  preparing.className = 'receipt-offer'
+  preparing.innerHTML = `<div class="receipt-offer-card"><p>${bi('Preparing your receipt…', 'રસીદ તૈયાર થઈ રહી છે…')}</p></div>`
+  document.body.appendChild(preparing)
   try {
     const { jsPDF } = await import('jspdf')
     const canvas = await captureReceiptCanvas(sheet)
-    const image = canvas.toDataURL('image/jpeg', 0.92)
-    const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const margin = 28
-    const usableWidth = pageWidth - margin * 2
-    const usableHeight = pageHeight - margin * 2
-    const imageHeight = (canvas.height * usableWidth) / canvas.width
-    let drawn = 0
-    let page = 0
-    while (drawn < imageHeight - 1) {
-      if (page > 0) pdf.addPage()
-      pdf.addImage(
-        image,
-        'JPEG',
-        margin,
-        margin - drawn,
-        usableWidth,
-        imageHeight,
-      )
-      drawn += usableHeight
-      page += 1
-      if (page > 8) break
-    }
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4', compress: true })
+    addCanvasPages(pdf, canvas)
     const filename = `${receiptNo || 'chansma-receipt'}.pdf`
     const blob = pdf.output('blob')
-    if (iosPreview) {
-      const url = URL.createObjectURL(blob)
-      iosPreview.location.href = url
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    preparing.remove()
+    if (isMobileDevice()) {
+      showReceiptOffer(blob, filename)
     } else {
       await savePdfFile(blob, filename)
     }
   } catch (error) {
     console.error(error)
-    iosPreview?.close()
+    preparing.remove()
     if (button) {
       button.disabled = false
       button.textContent = 'Download failed. Try again.'

@@ -4339,6 +4339,48 @@ img.sport-icon {
   line-height: 1.45;
 }
 
+.receipt-offer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: end center;
+  padding: 1rem;
+  background: rgba(6, 21, 40, 0.45);
+}
+
+.receipt-offer-card {
+  width: min(100%, 24rem);
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+  padding: 1.1rem 1rem 1rem;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  text-align: left;
+}
+
+.receipt-offer-card h3 {
+  margin: 0 0 0.35rem;
+  color: var(--navy);
+  font-size: 1.2rem;
+}
+
+.receipt-offer-card p {
+  margin: 0 0 0.9rem;
+  color: var(--muted);
+}
+
+.receipt-offer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.receipt-offer-actions .btn {
+  width: 100%;
+  justify-content: center;
+}
+
 /* Phone wizard: keep every step fully visible instead of crushing it off the card */
 @media (max-width: 720px) {
   .shell,
