@@ -94,20 +94,22 @@ PaddleOCR is a Python-native library based on PaddlePaddle. Running Python child
 ### Detailed Extraction Rules
 
 #### A. Payment App Detection
-Scans for distinctive UPI ecosystem keywords:
+Scans for distinctive UPI ecosystem keywords across 30+ supported apps:
 - **Google Pay**: `"Google Pay"`, `"GPay"`, `"UPI transaction ID"`, `"Google LLC"`, `"CIC"`, `"Paid to"`
 - **PhonePe**: `"PhonePe"`, `"Transaction ID"`, `"T24"`, `"Debited from"`, `"Transfer Details"`
 - **Paytm**: `"Paytm"`, `"UPI Ref No"`, `"Money Sent"`, `"Payment to"`, `"Paytm Payments Bank"`
-- **BHIM / Bank Apps**: `"BHIM"`, `"UPI Ref"`, `"Kotak"`, `"HDFC"`, `"SBI"`, `"ICICI"`, `"Axis"`, `"iMobile"`
+- **PayZapp**: `"PayZapp"`, `"Pay Zapp"`, `"HDFC PayZapp"`
+- **Pop UPI**: `"Pop UPI"`, `"POPclub"`, `"popupi"`
+- **Amazon Pay**: `"Amazon Pay"`, `"amazonpay"`, `"amazon.in"`
+- **CRED**: `"CRED"`, `"CRED Pay"`, `"dreamplug"`
+- **BHIM / Bank Apps**: `"BHIM"`, `"UPI Ref"`, `"Kotak 811"`, `"SBI YONO"`, `"HDFC"`, `"ICICI iMobile"`, `"Axis Pay"`, `"Bank of Baroda"`, `"PNB ONE"`, `"Canara"`, `"Union Bank"`, `"Federal Bank"`, `"IDFC FIRST"`, `"Jupiter"`, `"Fi Money"`, `"Super.money"`, `"Slice"`, `"Navi"`, etc.
 
 #### B. Payment Success Indicators
-Requires explicit proof of completion. General words like *"payment"* or *"UPI"* are **insufficient**:
-- **Positive indicators (Required)**:  
-  `"payment successful"`, `"paid successfully"`, `"transaction successful"`, `"payment completed"`, `"paid to"`, `"money sent to"`, `"successful"`, `"sent successfully"`.
+Requires explicit proof of completion or bank submission:
+- **Positive indicators (Treated as SUCCESS/ACCEPT)**:  
+  `"payment successful"`, `"paid successfully"`, `"transaction successful"`, `"payment completed"`, `"paid to"`, `"money sent to"`, `"successful"`, `"sent successfully"`, `"debited from"`, `"payment done"`, `"bill paid"`, `"transferred to"`, `"payment processing"`, `"processing"`, `"pending at bank"`, `"payment pending"`, `"submitted to bank"`.
 - **Negative / Disqualifying indicators (Immediate Reject)**:  
   `"failed"`, `"payment failed"`, `"declined"`, `"transaction failed"`, `"cancelled"`, `"reversed"`.
-- **Ambiguous indicators (Triggers Manual Review)**:  
-  `"payment pending"`, `"processing"`, `"under review"`, `"awaiting confirmation"`.
 
 #### C. Amount Validation
 Strict equality matching against the expected amount calculated by [`src/fees.ts`](file:///Users/harshshah/Projects/chansma-olympics/src/fees.ts):
@@ -143,13 +145,13 @@ Every UPI transaction generates a standard 12-digit Unique Transaction Reference
 | Condition | Decision | User Action | System Action |
 |---|---|---|---|
 | Image is valid, success wording detected, amount matches expected, UTR found and unique in DB | **`ACCEPT`** | Can click "Submit Registration" | Auto-saves with status `VERIFIED` |
-| File is not an image / corrupted / < 300px | **`REJECT`** | Must upload a valid image | Form stays blocked |
+| Success detected, amount matches, but UTR number is blurry or missing | **`ACCEPT`** *(Manual review condition 1 turned to Success)* | Can click "Submit Registration" | Auto-saves with empty UTR and verified status |
+| Payment says "Processing" or "Pending at bank" | **`ACCEPT`** *(Manual review condition 2 turned to Success)* | Can click "Submit Registration" | Auto-saves with verified status |
+| File is not an image / corrupted / < 150px | **`REJECT`** | Must upload a valid image | Form stays blocked |
 | Amount extracted does not match expected amount (e.g. ₹50 vs ₹500) | **`REJECT`** | Must upload screenshot showing full expected fee | Form stays blocked |
-| UTR already exists in database | **`REJECT`** | Replay fraud blocked; must upload new payment | Form stays blocked; logged in security audit |
+| UTR already exists in database | **`REJECT`** | Replay fraud blocked; must upload new payment | Form stays blocked; duplicate flagged |
 | Contains words like "Failed", "Declined", "Cancelled" | **`REJECT`** | Prompted to complete payment and retry | Form stays blocked |
-| Success detected, amount matches, but UTR number is blurry or cut off | **`MANUAL_REVIEW`** | Allowed to submit with warning note | Saved with status `MANUAL_REVIEW`; highlighted in admin dashboard |
-| Payment says "Processing" or "Pending" at bank | **`MANUAL_REVIEW`** | Allowed to submit | Flagged for manual verification once bank settles |
-| Text is completely unreadable / random picture uploaded | **`REJECT`** | Prompted to upload proper payment receipt | Form stays blocked |
+| Text is completely unreadable / random non-payment picture | **`REJECT`** | Prompted to upload proper payment receipt | Form stays blocked |
 
 ---
 

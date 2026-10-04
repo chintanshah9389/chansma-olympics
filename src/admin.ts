@@ -396,7 +396,7 @@ function rowHtml(row: FlatRow, index: number): string {
       <td>${escapeHtml(s?.player2Name || '—')}</td>
       <td>${escapeHtml(s?.player2Mobile || '—')}</td>
       <td>${escapeHtml(s?.player2Age != null ? String(s.player2Age) : '—')}</td>
-      <td class="col-ref"><code>${escapeHtml(r.receiptNo || r.id)}</code>${r.payMode ? `<div class="pay-note">${escapeHtml(r.payMode === 'cash' ? `Cash · ${r.paidTo || '—'}` : `Online${r.amount ? ` · ₹${r.amount}` : ''}`)}</div>` : ''}${uploadLink(s?.photoUrl, 'Player photo')}${uploadLink(r.paymentShotUrl, 'Payment screenshot')}</td>
+      <td class="col-ref"><code>${escapeHtml(r.receiptNo || r.id)}</code>${r.payMode ? `<div class="pay-note">${escapeHtml(r.payMode === 'cash' ? `Cash · ${r.paidTo || '—'}` : `Online${r.amount ? ` · ₹${r.amount}` : ''}`)}</div>` : ''}${r.utrNo ? `<div class="utr-note" style="font-size:0.75rem; color:#0369a1; font-family:monospace;">UTR: ${escapeHtml(r.utrNo)}</div>` : ''}${uploadLink(s?.photoUrl, 'Player photo')}${uploadLink(r.paymentShotUrl, 'Payment screenshot')}</td>
       <td class="col-when">${escapeHtml(formatWhen(r.createdAt))}</td>
       <td class="col-actions">
         <button type="button" class="btn btn-ghost btn-table" data-edit-row="${escapeHtml(key)}" ${tableBusy ? 'disabled' : ''}>${withIcon(iconEdit(), 'Edit')}</button>
@@ -596,6 +596,7 @@ function downloadCsv(rows: FlatRow[]): void {
     'Payment Mode',
     'Paid To',
     'Amount',
+    'UTR No',
     'Player Photo URL',
     'Payment Screenshot URL',
     'Registration ID',
@@ -632,6 +633,7 @@ function downloadCsv(rows: FlatRow[]): void {
         payModeLabel(r.payMode),
         r.paidTo ?? '',
         r.amount != null ? String(r.amount) : '',
+        r.utrNo ?? '',
         absoluteUploadUrl(s?.photoUrl),
         absoluteUploadUrl(r.paymentShotUrl),
         r.id,

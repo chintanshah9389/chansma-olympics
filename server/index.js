@@ -8,6 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { WebSocketServer } from 'ws'
+import { verifyPaymentScreenshot } from './ocr.js'
 
 dotenv.config()
 
@@ -299,6 +300,19 @@ async function ensureSchema() {
     ALTER TABLE registrations
       ADD COLUMN IF NOT EXISTS payment_shot_url TEXT NOT NULL DEFAULT '';
 
+    ALTER TABLE registrations
+      ADD COLUMN IF NOT EXISTS utr_no TEXT NOT NULL DEFAULT '';
+
+    ALTER TABLE registrations
+      ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'verified';
+
+    ALTER TABLE registrations
+      ADD COLUMN IF NOT EXISTS ocr_details JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+    CREATE INDEX IF NOT EXISTS idx_registrations_utr
+      ON registrations (utr_no)
+      WHERE utr_no != '';
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value JSONB NOT NULL,
@@ -363,7 +377,7 @@ function normalizeEvent(value) {
   return EVENT_IDS.includes(value) ? value : 'indoor'
 }
 
-const REGISTRATION_COLUMNS = `id, event, full_name, mobile, location, gender, sports, created_at, receipt_no, pay_mode, paid_to, amount, payment_shot_url`
+const REGISTRATION_COLUMNS = `id, event, full_name, mobile, location, gender, sports, created_at, receipt_no, pay_mode, paid_to, amount, payment_shot_url, utr_no, payment_status, ocr_details`
 
 function rowToRegistration(row) {
   const payMode = row.pay_mode === 'cash' || row.pay_mode === 'online' ? row.pay_mode : ''
@@ -381,6 +395,9 @@ function rowToRegistration(row) {
     paidTo: row.paid_to || '',
     amount: Number(row.amount) || 0,
     paymentShotUrl: row.payment_shot_url || '',
+    utrNo: row.utr_no || '',
+    paymentStatus: row.payment_status || 'verified',
+    ocrDetails: row.ocr_details || {},
   }
 }
 
@@ -1006,6 +1023,9 @@ function prepareRegistration(body) {
     body?.payMode === 'cash' || body?.payMode === 'online' ? body.payMode : ''
   const paidTo = String(body?.paidTo || '').slice(0, 80)
   const amount = Math.max(0, Math.floor(Number(body?.amount) || 0))
+  const utrNo = String(body?.utrNo || '').trim()
+  const paymentStatus = String(body?.paymentStatus || 'verified').trim()
+  const ocrDetails = body?.ocrDetails && typeof body.ocrDetails === 'object' ? body.ocrDetails : {}
   return {
     id,
     event,
@@ -1019,6 +1039,9 @@ function prepareRegistration(body) {
     payMode,
     paidTo,
     amount,
+    utrNo,
+    paymentStatus,
+    ocrDetails,
   }
 }
 
@@ -1069,8 +1092,8 @@ async function registrationError(reg, excludeId = null) {
 async function insertRegistration(client, reg) {
   await client.query(
     `INSERT INTO registrations
-      (id, event, full_name, mobile, location, gender, sports, created_at, receipt_no, pay_mode, paid_to, amount, payment_shot_url)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9, $10, $11, $12, $13)`,
+      (id, event, full_name, mobile, location, gender, sports, created_at, receipt_no, pay_mode, paid_to, amount, payment_shot_url, utr_no, payment_status, ocr_details)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)`,
     [
       reg.id,
       reg.event,
@@ -1085,6 +1108,9 @@ async function insertRegistration(client, reg) {
       reg.paidTo,
       reg.amount,
       reg.paymentShotUrl || '',
+      reg.utrNo || '',
+      reg.paymentStatus || 'verified',
+      JSON.stringify(reg.ocrDetails || {}),
     ],
   )
 }
@@ -1103,6 +1129,21 @@ app.get('/api/registrations', async (_req, res) => {
   }
 })
 
+app.post('/api/payments/verify-screenshot', async (req, res) => {
+  try {
+    const { image, expectedAmount, excludeId } = req.body || {}
+    if (!image) {
+      res.status(400).json({ status: 'REJECT', reason: 'Payment screenshot image is required.' })
+      return
+    }
+    const result = await verifyPaymentScreenshot(image, expectedAmount, pool, excludeId)
+    res.json(result)
+  } catch (error) {
+    console.error('Verify screenshot error:', error)
+    res.status(500).json({ status: 'REJECT', reason: error.message || 'Verification failed.' })
+  }
+})
+
 app.post('/api/registrations/checkout', async (req, res) => {
   const list = Array.isArray(req.body?.registrations) ? req.body.registrations : []
   if (list.length === 0) {
@@ -1111,6 +1152,26 @@ app.post('/api/registrations/checkout', async (req, res) => {
   }
   const prepared = list.map((item) => prepareRegistration(item))
   try {
+    if (prepared.some((r) => r.payMode === 'online')) {
+      const paymentShot = req.body?.paymentShot
+      if (!paymentShot) {
+        res.status(400).json({ error: 'Payment screenshot is required for online payments.' })
+        return
+      }
+      const totalAmount = prepared.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+      const verifyRes = await verifyPaymentScreenshot(paymentShot, totalAmount, pool)
+      if (verifyRes.status === 'REJECT') {
+        res.status(400).json({ error: verifyRes.reason || 'Payment screenshot failed verification.' })
+        return
+      }
+      for (const reg of prepared) {
+        if (reg.payMode === 'online') {
+          reg.utrNo = verifyRes.data?.utr || ''
+          reg.paymentStatus = 'verified'
+          reg.ocrDetails = verifyRes.data || {}
+        }
+      }
+    }
     try {
       storeRegistrationImages(prepared, req.body?.paymentShot)
     } catch (error) {
@@ -1156,6 +1217,21 @@ app.post('/api/registrations/checkout', async (req, res) => {
 app.post('/api/registrations', async (req, res) => {
   try {
     const reg = prepareRegistration(req.body ?? {})
+    if (reg.payMode === 'online') {
+      const paymentShot = req.body?.paymentShot
+      if (!paymentShot) {
+        res.status(400).json({ error: 'Payment screenshot is required for online payments.' })
+        return
+      }
+      const verifyRes = await verifyPaymentScreenshot(paymentShot, reg.amount, pool)
+      if (verifyRes.status === 'REJECT') {
+        res.status(400).json({ error: verifyRes.reason || 'Payment screenshot failed verification.' })
+        return
+      }
+      reg.utrNo = verifyRes.data?.utr || ''
+      reg.paymentStatus = 'verified'
+      reg.ocrDetails = verifyRes.data || {}
+    }
     try {
       storeRegistrationImages([reg], req.body?.paymentShot)
     } catch (error) {
