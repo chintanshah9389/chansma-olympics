@@ -3331,12 +3331,6 @@ function renderDone(): string {
   `
 }
 
-function nextFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => resolve())
-  })
-}
-
 function receiptSportName(id: SelectedSport['sportId']): string {
   return sportLabel(id)
 }
@@ -3368,79 +3362,97 @@ function receiptPlayerBits(
   return bits.join(' · ')
 }
 
-function receiptPrintRow(label: string, value: string): string {
-  return `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`
-}
+type ReceiptPdf = import('jspdf').jsPDF
 
-function receiptIndoorPrint(sport: SelectedSport): string {
-  const people =
-    sport.format === 'double'
-      ? receiptPrintRow(
-          'Player 1',
-          receiptPlayerBits(sport.player1Name, sport.player1Mobile, sport.player1Age),
-        ) +
-        receiptPrintRow(
-          'Player 2',
-          receiptPlayerBits(sport.player2Name, sport.player2Mobile, sport.player2Age),
-        )
-      : receiptPrintRow(
-          'Player',
-          receiptPlayerBits(
-            sport.player1Name || state.fullName,
-            sport.player1Mobile || normalizeMobile(state.mobile),
-            sport.player1Age,
-          ),
-        )
-  return `
-    <section class="receipt-print-card">
-      <p class="receipt-print-card-title">${escapeHtml(receiptSportName(sport.sportId))}</p>
-      <p class="receipt-print-card-sub">${escapeHtml(receiptFormatLabel(sport))} · ${escapeHtml(receiptStatusLabel(sport.status))}</p>
-      <table>${people}</table>
-    </section>`
-}
-
-function receiptCricketPrint(): string {
-  if (!pickTurf && !pickOverarm) return ''
-  const player = cricketEntry
-  const both = pickTurf && pickOverarm
-  const heading = both ? 'Cricket' : pickTurf ? 'Turf cricket' : 'Overarm cricket'
-  const who = both
-    ? 'Turf · Overarm'
-    : pickOverarm
-      ? 'Men only'
-      : cricketGender === 'female'
-        ? 'Female'
-        : 'Male'
-  const name = [player.firstName, player.fatherName, player.grandfatherName, player.surname]
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join(' ')
-  const details = [player.mobile.trim(), player.age.trim(), player.birthDate.trim(), player.area.trim()]
-    .filter(Boolean)
-    .join(' · ')
-  const skillRows = (['turf', 'overarm'] as const)
-    .filter((kind) => (kind === 'turf' ? pickTurf : pickOverarm))
-    .map((kind) => {
-      const skill = PLAYER_SKILLS.find((item) => item.id === cricketSkills[kind])
-      const label = kind === 'turf' ? 'Turf' : 'Overarm'
-      const text = skill ? skill.en : '-'
-      return receiptPrintRow(label, `${text} · ${receiptStatusLabel(cricketStatus(kind))}`)
+async function loadDataUrl(src: string): Promise<string | null> {
+  if (!src) return null
+  if (src.startsWith('data:')) return src
+  try {
+    const response = await fetch(src)
+    if (!response.ok) return null
+    const blob = await response.blob()
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(blob)
     })
-    .join('')
-  return `
-    <section class="receipt-print-card">
-      ${player.photoUrl ? `<img class="receipt-print-photo" src="${player.photoUrl}" alt="" />` : ''}
-      <p class="receipt-print-card-title">${escapeHtml(heading)}</p>
-      <p class="receipt-print-card-sub">${escapeHtml(who)}</p>
-      <table>
-        ${receiptPrintRow('Player', name || '-')}
-        ${details ? receiptPrintRow('Details', details) : ''}
-        ${skillRows}
-      </table>
-    </section>`
+  } catch {
+    return null
+  }
 }
 
-function receiptPrintHtml(): string {
+function pdfEnsureSpace(pdf: ReceiptPdf, y: number, need: number): number {
+  const bottom = pdf.internal.pageSize.getHeight() - 42
+  if (y + need <= bottom) return y
+  pdf.addPage()
+  return 44
+}
+
+function drawReceiptCard(
+  pdf: ReceiptPdf,
+  y: number,
+  title: string,
+  sub: string,
+  rows: [string, string][],
+): number {
+  const pageW = pdf.internal.pageSize.getWidth()
+  const left = 48
+  const width = pageW - 96
+  const rowH = 16
+  const height = 46 + rows.length * rowH + 10
+  y = pdfEnsureSpace(pdf, y, height)
+  pdf.setDrawColor(215, 222, 231)
+  pdf.setFillColor(255, 255, 255)
+  pdf.roundedRect(left, y, width, height, 8, 8, 'S')
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(12)
+  pdf.setTextColor(11, 31, 58)
+  pdf.text(title, left + 12, y + 18)
+  pdf.setFontSize(9)
+  pdf.setTextColor(90, 107, 127)
+  pdf.text(sub, left + 12, y + 32)
+  let rowY = y + 48
+  for (const [label, value] of rows) {
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(9)
+    pdf.setTextColor(90, 107, 127)
+    pdf.text(label, left + 12, rowY)
+    pdf.setTextColor(11, 31, 58)
+    const wrapped = pdf.splitTextToSize(value, width - 140)
+    pdf.text(wrapped, left + 118, rowY)
+    rowY += Math.max(rowH, wrapped.length * 12)
+  }
+  return y + height + 12
+}
+
+async function waitForReceiptThenDownload(): Promise<void> {
+  const deadline = Date.now() + 5000
+  while (!document.getElementById('receipt-sheet') && Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 40))
+  }
+  if (!document.getElementById('receipt-sheet')) return
+  await downloadReceipt()
+}
+
+function downloadPdfBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.rel = 'noopener'
+  link.target = '_blank'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
+async function makeReceiptPdf(): Promise<{ blob: Blob; filename: string } | null> {
+  if (!document.getElementById('receipt-sheet')) return null
+  const { jsPDF } = await import('jspdf')
+  const pdf = new jsPDF({ unit: 'pt', format: 'a4', compress: true })
+  const pageW = pdf.internal.pageSize.getWidth()
   const sports = pickIndoor ? lastRegisteredSports : []
   const lines = frozenBill ?? feeLines(sports)
   const total = lines.reduce((sum, line) => sum + line.amount, 0)
@@ -3450,175 +3462,160 @@ function receiptPrintHtml(): string {
   })
   const paidHow =
     payMode === 'cash' ? `Cash · ${cashCollector}` : 'Online · UPI / bank'
-  return `
-    <article class="receipt-print">
-      <header class="receipt-print-brand">
-        <img class="receipt-print-logo" src="/chanasma-logo.png" alt="" />
-        <p class="receipt-print-name">CHANASMA</p>
-        <p class="receipt-print-olympic">OLYMPIC</p>
-        <p class="receipt-print-sponsor">
-          <span>Event partner</span>
-          <strong>${escapeHtml(MAIN_SPONSOR)}</strong>
-          <small>${escapeHtml(MAIN_SPONSOR_LINE)}</small>
-        </p>
-      </header>
-      <h1>Payment receipt</h1>
-      <p class="receipt-print-no">${escapeHtml(receiptNo)}</p>
-      <p class="receipt-print-when">${escapeHtml(when)}</p>
-      ${sports.map((sport) => receiptIndoorPrint(sport)).join('')}
-      ${receiptCricketPrint()}
-      <section class="receipt-print-bill">
-        <p class="receipt-print-bill-kicker">Amount due</p>
-        <table>
-          ${lines
-            .map(
-              (line) =>
-                `<tr><th>${escapeHtml(line.label)}</th><td>${escapeHtml(inr(line.amount))}</td></tr>`,
-            )
-            .join('')}
-        </table>
-        <p class="receipt-print-total"><span>Total</span><strong>${escapeHtml(inr(total))}</strong></p>
-      </section>
-      <p class="receipt-print-paid"><span>Paid by</span><strong>${escapeHtml(paidHow)}</strong></p>
-      ${
-        payMode === 'online' && paymentShot
-          ? `<img class="receipt-print-shot" src="${paymentShot}" alt="" />`
-          : ''
-      }
-    </article>`
-}
+  const logo = await loadDataUrl('/chanasma-logo.png')
+  const cricketPhoto = pickTurf || pickOverarm ? await loadDataUrl(cricketEntry.photoUrl) : null
+  const shot = payMode === 'online' && paymentShot ? await loadDataUrl(paymentShot) : null
 
-async function waitForElementReady(root: HTMLElement): Promise<void> {
-  if (document.fonts?.ready) await document.fonts.ready
-  await Promise.all(
-    [...root.querySelectorAll('img')].map((img) => {
-      if (img.complete && img.naturalWidth > 0) return Promise.resolve()
-      return new Promise<void>((resolve) => {
-        const done = () => resolve()
-        img.addEventListener('load', done, { once: true })
-        img.addEventListener('error', done, { once: true })
-        window.setTimeout(done, 2500)
-      })
-    }),
-  )
-  await nextFrame()
-  await nextFrame()
-}
-
-async function waitForReceiptThenDownload(): Promise<void> {
-  const deadline = Date.now() + 5000
-  let sheet = document.getElementById('receipt-sheet')
-  while (!sheet && Date.now() < deadline) {
-    await new Promise((resolve) => window.setTimeout(resolve, 40))
-    sheet = document.getElementById('receipt-sheet')
+  let y = 36
+  if (logo) {
+    pdf.addImage(logo, 'PNG', (pageW - 52) / 2, y, 52, 52)
+    y += 64
   }
-  if (!sheet) return
-  await waitForElementReady(sheet)
-  await downloadReceipt()
-}
 
-async function captureReceiptCanvas(): Promise<HTMLCanvasElement> {
-  const { default: html2canvas } = await import('html2canvas-pro')
-  const host = document.createElement('div')
-  host.className = 'receipt-capture-host'
-  host.innerHTML = receiptPrintHtml()
-  const sheet = host.firstElementChild as HTMLElement | null
-  if (!sheet) throw new Error('Receipt is not ready.')
-  document.body.appendChild(host)
-  await waitForElementReady(sheet)
-  try {
-    const width = 640
-    const height = Math.max(sheet.scrollHeight, sheet.offsetHeight)
-    const canvas = await html2canvas(sheet, {
-      backgroundColor: '#ffffff',
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      width,
-      height,
-      windowWidth: width,
-      windowHeight: height,
-      scrollX: 0,
-      scrollY: 0,
-    })
-    if (canvas.width < 10 || canvas.height < 10) {
-      throw new Error('Receipt capture was empty')
+  pdf.setFont('helvetica', 'bold')
+  pdf.setTextColor(11, 31, 58)
+  pdf.setFontSize(22)
+  pdf.text('CHANASMA', pageW / 2, y, { align: 'center' })
+  y += 18
+  pdf.setTextColor(223, 0, 36)
+  pdf.setFontSize(11)
+  pdf.text('OLYMPIC', pageW / 2, y, { align: 'center' })
+  y += 18
+
+  const boxW = 320
+  pdf.setFillColor(11, 31, 58)
+  pdf.roundedRect((pageW - boxW) / 2, y, boxW, 48, 8, 8, 'F')
+  pdf.setTextColor(240, 193, 75)
+  pdf.setFontSize(8)
+  pdf.text('EVENT PARTNER', pageW / 2, y + 14, { align: 'center' })
+  pdf.setFontSize(11)
+  pdf.text(MAIN_SPONSOR, pageW / 2, y + 28, { align: 'center' })
+  pdf.setFontSize(7)
+  pdf.setTextColor(230, 230, 230)
+  pdf.text(MAIN_SPONSOR_LINE, pageW / 2, y + 40, { align: 'center' })
+  y += 68
+
+  pdf.setTextColor(11, 31, 58)
+  pdf.setFontSize(16)
+  pdf.text('Payment receipt', pageW / 2, y, { align: 'center' })
+  y += 18
+  pdf.setTextColor(223, 0, 36)
+  pdf.setFontSize(12)
+  pdf.text(receiptNo || 'Receipt', pageW / 2, y, { align: 'center' })
+  y += 16
+  pdf.setTextColor(90, 107, 127)
+  pdf.setFontSize(10)
+  pdf.text(when, pageW / 2, y, { align: 'center' })
+  y += 22
+
+  for (const sport of sports) {
+    const rows: [string, string][] =
+      sport.format === 'double'
+        ? [
+            [
+              'Player 1',
+              receiptPlayerBits(sport.player1Name, sport.player1Mobile, sport.player1Age),
+            ],
+            [
+              'Player 2',
+              receiptPlayerBits(sport.player2Name, sport.player2Mobile, sport.player2Age),
+            ],
+          ]
+        : [
+            [
+              'Player',
+              receiptPlayerBits(
+                sport.player1Name || state.fullName,
+                sport.player1Mobile || normalizeMobile(state.mobile),
+                sport.player1Age,
+              ),
+            ],
+          ]
+    y = drawReceiptCard(
+      pdf,
+      y,
+      receiptSportName(sport.sportId),
+      `${receiptFormatLabel(sport)} · ${receiptStatusLabel(sport.status)}`,
+      rows,
+    )
+  }
+
+  if (pickTurf || pickOverarm) {
+    const player = cricketEntry
+    const both = pickTurf && pickOverarm
+    const heading = both ? 'Cricket' : pickTurf ? 'Turf cricket' : 'Overarm cricket'
+    const who = both
+      ? 'Turf · Overarm'
+      : pickOverarm
+        ? 'Men only'
+        : cricketGender === 'female'
+          ? 'Female'
+          : 'Male'
+    const name = [player.firstName, player.fatherName, player.grandfatherName, player.surname]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(' ')
+    const details = [player.mobile.trim(), player.age.trim(), player.birthDate.trim(), player.area.trim()]
+      .filter(Boolean)
+      .join(' · ')
+    const rows: [string, string][] = [['Player', name || '-']]
+    if (details) rows.push(['Details', details])
+    for (const kind of ['turf', 'overarm'] as const) {
+      if (kind === 'turf' ? !pickTurf : !pickOverarm) continue
+      const skill = PLAYER_SKILLS.find((item) => item.id === cricketSkills[kind])
+      rows.push([
+        kind === 'turf' ? 'Turf' : 'Overarm',
+        `${skill ? skill.en : '-'} · ${receiptStatusLabel(cricketStatus(kind))}`,
+      ])
     }
-    return canvas
-  } finally {
-    host.remove()
+    if (cricketPhoto) {
+      y = pdfEnsureSpace(pdf, y, 90)
+      pdf.addImage(cricketPhoto, 'JPEG', 48, y, 72, 72)
+      y += 84
+    }
+    y = drawReceiptCard(pdf, y, heading, who, rows)
   }
-}
 
-function addCanvasPages(
-  pdf: import('jspdf').jsPDF,
-  canvas: HTMLCanvasElement,
-): void {
-  const pageWidth = pdf.internal.pageSize.getWidth()
-  const pageHeight = pdf.internal.pageSize.getHeight()
-  const margin = 28
-  const usableWidth = pageWidth - margin * 2
-  const usableHeight = pageHeight - margin * 2
-  const sliceHeight = Math.max(
-    1,
-    Math.floor((usableHeight * canvas.width) / usableWidth),
-  )
-  let offset = 0
-  let page = 0
-  while (offset < canvas.height && page < 12) {
-    const height = Math.min(sliceHeight, canvas.height - offset)
-    const slice = document.createElement('canvas')
-    slice.width = canvas.width
-    slice.height = height
-    const context = slice.getContext('2d')
-    if (!context) throw new Error('Could not draw the receipt')
-    context.fillStyle = '#ffffff'
-    context.fillRect(0, 0, slice.width, slice.height)
-    context.drawImage(
-      canvas,
-      0,
-      offset,
-      canvas.width,
-      height,
-      0,
-      0,
-      canvas.width,
-      height,
-    )
-    if (page > 0) pdf.addPage()
-    const drawHeight = (height * usableWidth) / canvas.width
-    pdf.addImage(
-      slice.toDataURL('image/jpeg', 0.92),
-      'JPEG',
-      margin,
-      margin,
-      usableWidth,
-      drawHeight,
-    )
-    offset += height
-    page += 1
+  const billH = 58 + lines.length * 16
+  y = pdfEnsureSpace(pdf, y, billH)
+  const left = 48
+  const width = pageW - 96
+  pdf.setDrawColor(215, 222, 231)
+  pdf.roundedRect(left, y, width, billH, 8, 8, 'S')
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(9)
+  pdf.setTextColor(90, 107, 127)
+  pdf.text('AMOUNT DUE', left + 12, y + 16)
+  let lineY = y + 34
+  for (const line of lines) {
+    pdf.setFontSize(10)
+    pdf.setTextColor(11, 31, 58)
+    pdf.text(line.label, left + 12, lineY)
+    pdf.text(inr(line.amount), left + width - 12, lineY, { align: 'right' })
+    lineY += 16
   }
-}
+  pdf.setDrawColor(11, 31, 58)
+  pdf.line(left + 12, lineY - 6, left + width - 12, lineY - 6)
+  pdf.setFontSize(12)
+  pdf.text('Total', left + 12, lineY + 12)
+  pdf.setTextColor(223, 0, 36)
+  pdf.text(inr(total), left + width - 12, lineY + 12, { align: 'right' })
+  y += billH + 18
 
-function downloadPdfBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.rel = 'noopener'
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 4000)
-}
+  y = pdfEnsureSpace(pdf, y, 24)
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(11)
+  pdf.setTextColor(90, 107, 127)
+  pdf.text('Paid by', 48, y)
+  pdf.setTextColor(11, 31, 58)
+  pdf.text(paidHow, pageW - 48, y, { align: 'right' })
+  y += 16
 
-async function makeReceiptPdf(): Promise<{ blob: Blob; filename: string } | null> {
-  const sheet = document.getElementById('receipt-sheet')
-  if (!sheet) return null
-  const { jsPDF } = await import('jspdf')
-  const canvas = await captureReceiptCanvas()
-  const pdf = new jsPDF({ unit: 'pt', format: 'a4', compress: true })
-  addCanvasPages(pdf, canvas)
+  if (shot) {
+    y = pdfEnsureSpace(pdf, y, 170)
+    pdf.addImage(shot, 'JPEG', 48, y, 140, 140)
+  }
+
   return {
     blob: pdf.output('blob'),
     filename: `${receiptNo || 'chansma-receipt'}.pdf`,
