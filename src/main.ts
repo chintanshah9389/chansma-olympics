@@ -178,6 +178,24 @@ function sponsorBlockHtml(
   return `<span class="sponsor-kicker">${bi(labelEn, labelGu)}</span><span class="sponsor-lockup"><span class="sponsor-mark">${sponsorLogoHtml()}</span>${sponsorStrongHtml()}</span>`
 }
 
+function mastheadHtml(): string {
+  return `
+      <header class="masthead">
+        <div class="masthead-brand">
+          <img class="masthead-logo" src="/chanasma-logo.png" alt="Chanasma Jain Yuva Youth" />
+          <div class="masthead-stage">
+            <div class="masthead-face masthead-face-brand">
+              <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
+              <div class="olympic-rings" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+            </div>
+            <div class="masthead-face masthead-face-sponsor">${sponsorBlockHtml()}</div>
+          </div>
+          <a class="masthead-admin" href="#/admin" aria-label="Admin">${iconAdmin()}</a>
+        </div>
+        ${langTabsHtml()}
+      </header>`
+}
+
 function receiptSponsorHtml(): string {
   const label = uiLang === 'gu' ? 'ઇવેન્ટ પાર્ટનર' : 'Event partner'
   return `<span class="sponsor-kicker">${escapeHtml(label)}</span><span class="sponsor-lockup"><span class="sponsor-mark">${sponsorLogoHtml()}</span>${sponsorStrongHtml()}</span>`
@@ -3319,11 +3337,155 @@ function nextFrame(): Promise<void> {
   })
 }
 
-function applyCaptureLanguage(root: ParentNode, lang: 'en' | 'gu'): void {
-  const hide = lang === 'en' ? '.i18n-gu, .i18n-sep' : '.i18n-en, .i18n-sep'
-  root.querySelectorAll<HTMLElement>(hide).forEach((el) => {
-    el.style.setProperty('display', 'none', 'important')
+function receiptSportName(id: SelectedSport['sportId']): string {
+  return sportLabel(id)
+}
+
+function receiptFormatLabel(sport: SelectedSport): string {
+  if (sport.sportId === 'football') return 'Team'
+  if (
+    sport.sportId !== 'turf' &&
+    sport.sportId !== 'overarm' &&
+    organizerAssignsPartner(sport.sportId) &&
+    sport.format !== 'double'
+  ) {
+    return 'Partner assigned by organizer'
+  }
+  return sport.format === 'double' ? 'Doubles' : 'Singles'
+}
+
+function receiptStatusLabel(status: 'confirmed' | 'waiting'): string {
+  return status === 'waiting' ? 'Waiting' : 'Confirmed'
+}
+
+function receiptPlayerBits(
+  name: string | undefined,
+  mobile: string | undefined,
+  age: number | string | undefined,
+): string {
+  const bits = [name?.trim() || '-', mobile?.trim() || '-']
+  if (age != null && String(age).trim() !== '') bits.push(String(age))
+  return bits.join(' · ')
+}
+
+function receiptPrintRow(label: string, value: string): string {
+  return `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`
+}
+
+function receiptIndoorPrint(sport: SelectedSport): string {
+  const people =
+    sport.format === 'double'
+      ? receiptPrintRow(
+          'Player 1',
+          receiptPlayerBits(sport.player1Name, sport.player1Mobile, sport.player1Age),
+        ) +
+        receiptPrintRow(
+          'Player 2',
+          receiptPlayerBits(sport.player2Name, sport.player2Mobile, sport.player2Age),
+        )
+      : receiptPrintRow(
+          'Player',
+          receiptPlayerBits(
+            sport.player1Name || state.fullName,
+            sport.player1Mobile || normalizeMobile(state.mobile),
+            sport.player1Age,
+          ),
+        )
+  return `
+    <section class="receipt-print-card">
+      <p class="receipt-print-card-title">${escapeHtml(receiptSportName(sport.sportId))}</p>
+      <p class="receipt-print-card-sub">${escapeHtml(receiptFormatLabel(sport))} · ${escapeHtml(receiptStatusLabel(sport.status))}</p>
+      <table>${people}</table>
+    </section>`
+}
+
+function receiptCricketPrint(): string {
+  if (!pickTurf && !pickOverarm) return ''
+  const player = cricketEntry
+  const both = pickTurf && pickOverarm
+  const heading = both ? 'Cricket' : pickTurf ? 'Turf cricket' : 'Overarm cricket'
+  const who = both
+    ? 'Turf · Overarm'
+    : pickOverarm
+      ? 'Men only'
+      : cricketGender === 'female'
+        ? 'Female'
+        : 'Male'
+  const name = [player.firstName, player.fatherName, player.grandfatherName, player.surname]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ')
+  const details = [player.mobile.trim(), player.age.trim(), player.birthDate.trim(), player.area.trim()]
+    .filter(Boolean)
+    .join(' · ')
+  const skillRows = (['turf', 'overarm'] as const)
+    .filter((kind) => (kind === 'turf' ? pickTurf : pickOverarm))
+    .map((kind) => {
+      const skill = PLAYER_SKILLS.find((item) => item.id === cricketSkills[kind])
+      const label = kind === 'turf' ? 'Turf' : 'Overarm'
+      const text = skill ? skill.en : '-'
+      return receiptPrintRow(label, `${text} · ${receiptStatusLabel(cricketStatus(kind))}`)
+    })
+    .join('')
+  return `
+    <section class="receipt-print-card">
+      ${player.photoUrl ? `<img class="receipt-print-photo" src="${player.photoUrl}" alt="" />` : ''}
+      <p class="receipt-print-card-title">${escapeHtml(heading)}</p>
+      <p class="receipt-print-card-sub">${escapeHtml(who)}</p>
+      <table>
+        ${receiptPrintRow('Player', name || '-')}
+        ${details ? receiptPrintRow('Details', details) : ''}
+        ${skillRows}
+      </table>
+    </section>`
+}
+
+function receiptPrintHtml(): string {
+  const sports = pickIndoor ? lastRegisteredSports : []
+  const lines = frozenBill ?? feeLines(sports)
+  const total = lines.reduce((sum, line) => sum + line.amount, 0)
+  const when = new Date().toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
   })
+  const paidHow =
+    payMode === 'cash' ? `Cash · ${cashCollector}` : 'Online · UPI / bank'
+  return `
+    <article class="receipt-print">
+      <header class="receipt-print-brand">
+        <img class="receipt-print-logo" src="/chanasma-logo.png" alt="" />
+        <p class="receipt-print-name">CHANASMA</p>
+        <p class="receipt-print-olympic">OLYMPIC</p>
+        <p class="receipt-print-sponsor">
+          <span>Event partner</span>
+          <strong>${escapeHtml(MAIN_SPONSOR)}</strong>
+          <small>${escapeHtml(MAIN_SPONSOR_LINE)}</small>
+        </p>
+      </header>
+      <h1>Payment receipt</h1>
+      <p class="receipt-print-no">${escapeHtml(receiptNo)}</p>
+      <p class="receipt-print-when">${escapeHtml(when)}</p>
+      ${sports.map((sport) => receiptIndoorPrint(sport)).join('')}
+      ${receiptCricketPrint()}
+      <section class="receipt-print-bill">
+        <p class="receipt-print-bill-kicker">Amount due</p>
+        <table>
+          ${lines
+            .map(
+              (line) =>
+                `<tr><th>${escapeHtml(line.label)}</th><td>${escapeHtml(inr(line.amount))}</td></tr>`,
+            )
+            .join('')}
+        </table>
+        <p class="receipt-print-total"><span>Total</span><strong>${escapeHtml(inr(total))}</strong></p>
+      </section>
+      <p class="receipt-print-paid"><span>Paid by</span><strong>${escapeHtml(paidHow)}</strong></p>
+      ${
+        payMode === 'online' && paymentShot
+          ? `<img class="receipt-print-shot" src="${paymentShot}" alt="" />`
+          : ''
+      }
+    </article>`
 }
 
 async function waitForElementReady(root: HTMLElement): Promise<void> {
@@ -3355,28 +3517,19 @@ async function waitForReceiptThenDownload(): Promise<void> {
   await downloadReceipt()
 }
 
-async function captureReceiptCanvas(
-  sheet: HTMLElement,
-): Promise<HTMLCanvasElement> {
+async function captureReceiptCanvas(): Promise<HTMLCanvasElement> {
   const { default: html2canvas } = await import('html2canvas-pro')
-  const width = 640
   const host = document.createElement('div')
   host.className = 'receipt-capture-host'
-  host.dataset.lang = uiLang
-  const clone = sheet.cloneNode(true) as HTMLElement
-  clone.removeAttribute('id')
-  clone.classList.add('is-pdf-capture')
-  clone.style.width = `${width}px`
-  clone.style.maxWidth = `${width}px`
-  clone.style.margin = '0'
-  clone.style.overflow = 'visible'
-  applyCaptureLanguage(clone, uiLang)
-  host.appendChild(clone)
+  host.innerHTML = receiptPrintHtml()
+  const sheet = host.firstElementChild as HTMLElement | null
+  if (!sheet) throw new Error('Receipt is not ready.')
   document.body.appendChild(host)
-  await waitForElementReady(clone)
+  await waitForElementReady(sheet)
   try {
-    const height = Math.max(clone.scrollHeight, clone.offsetHeight)
-    const canvas = await html2canvas(clone, {
+    const width = 640
+    const height = Math.max(sheet.scrollHeight, sheet.offsetHeight)
+    const canvas = await html2canvas(sheet, {
       backgroundColor: '#ffffff',
       scale: 2,
       useCORS: true,
@@ -3387,30 +3540,6 @@ async function captureReceiptCanvas(
       windowHeight: height,
       scrollX: 0,
       scrollY: 0,
-      onclone: (doc, copy) => {
-        doc.documentElement.lang = uiLang
-        doc.documentElement.dataset.lang = uiLang
-        doc.body.dataset.lang = uiLang
-        doc.body.style.overflow = 'visible'
-        doc.documentElement.style.overflow = 'visible'
-        applyCaptureLanguage(copy, uiLang)
-        copy.style.width = `${width}px`
-        copy.style.maxWidth = `${width}px`
-        copy.style.height = 'auto'
-        copy.style.overflow = 'visible'
-        copy.style.background = '#ffffff'
-        copy.querySelectorAll('img').forEach((img) => {
-          img.style.maxWidth = '100%'
-          if (
-            img.classList.contains('pay-shot') ||
-            img.classList.contains('entry-photo')
-          ) {
-            img.style.width = '180px'
-            img.style.height = '180px'
-            img.style.objectFit = 'cover'
-          }
-        })
-      },
     })
     if (canvas.width < 10 || canvas.height < 10) {
       throw new Error('Receipt capture was empty')
@@ -3487,7 +3616,7 @@ async function makeReceiptPdf(): Promise<{ blob: Blob; filename: string } | null
   const sheet = document.getElementById('receipt-sheet')
   if (!sheet) return null
   const { jsPDF } = await import('jspdf')
-  const canvas = await captureReceiptCanvas(sheet)
+  const canvas = await captureReceiptCanvas()
   const pdf = new jsPDF({ unit: 'pt', format: 'a4', compress: true })
   addCanvasPages(pdf, canvas)
   return {
@@ -3661,18 +3790,7 @@ function render(): void {
   } else {
     app.innerHTML = `
     <div class="shell${phase.id === 'begin' ? ' shell-gate' : ''}">
-      <header class="masthead">
-        <div class="masthead-brand">
-          <img class="masthead-logo" src="/chanasma-logo.png" alt="શ્રી ચાણસ્મા જૈન યુવા યુથ" />
-          <div class="masthead-lockup">
-            <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
-            <div class="olympic-rings" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
-          </div>
-          <a class="masthead-admin" href="#/admin" aria-label="Admin">${iconAdmin()}</a>
-        </div>
-        <p class="masthead-sponsor">${sponsorBlockHtml()}</p>
-        ${langTabsHtml()}
-      </header>
+      ${mastheadHtml()}
 
       <main class="panel" data-group="${phase.id === 'begin' ? '' : phaseGroup(phase)}">
         ${phase.id !== 'begin' ? renderProgress() : ''}
