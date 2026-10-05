@@ -7319,3 +7319,89 @@ body.reuse-open {
     animation: none !important;
   }
 }
+
+/* OCR Payment Screenshot Verification */
+.ocr-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  margin-top: 0.75rem;
+  line-height: 1.4;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.ocr-status.is-verifying {
+  background: #f0f9ff;
+  border: 1px solid #7dd3fc;
+  color: #0369a1;
+}
+
+.ocr-status.is-success {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #15803d;
+}
+
+.ocr-status.is-error {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #b91c1c;
+}
+
+.ocr-badge-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 0.82rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.ocr-status.is-success .ocr-badge-icon {
+  background: #22c55e;
+  color: #ffffff;
+}
+
+.ocr-status.is-error .ocr-badge-icon {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.ocr-badge-content strong {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 700;
+  margin-bottom: 0.15rem;
+}
+
+.ocr-badge-content p {
+  margin: 0;
+  font-size: 0.82rem;
+  opacity: 0.9;
+}
+
+.ocr-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #bae6fd;
+  border-top-color: #0284c7;
+  border-radius: 50%;
+  animation: ocr-spin 0.8s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+@keyframes ocr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+

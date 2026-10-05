@@ -7,7 +7,8 @@
     "node": ">=20.19.0"
   },
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\" \"npm:ocr\"",
+    "ocr": "python3 server/ocr_service/main.py",
     "dev:live": "vite --mode live",
     "dev:client": "vite",
     "dev:server": "node --watch server/index.js",
@@ -23,6 +24,7 @@
     "html2canvas-pro": "^2.5.0",
     "jspdf": "^4.2.1",
     "pg": "^8.13.3",
+    "tesseract.js": "^7.0.0",
     "ws": "^8.18.1"
   },
   "devDependencies": {

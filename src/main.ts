@@ -23,6 +23,7 @@ import {
   saveCheckout,
   setActiveEvent,
   storeReceiptPdf,
+  verifyPaymentScreenshotApi,
 } from './storage'
 import { eventById, getCricketCapacities } from './events'
 import {
@@ -96,6 +97,7 @@ import type {
   SelectedSport,
   SeatSportId,
   SportId,
+  ScreenshotVerificationResult,
 } from './types'
 
 const STEP_LABELS = [
@@ -267,6 +269,9 @@ let payMode: 'online' | 'cash' | null = null
 let cashCollector = ''
 let paymentShot = ''
 let paymentShotName = ''
+let screenshotVerification: ScreenshotVerificationResult | null = null
+let verifyingScreenshot = false
+let screenshotVerifySeq = 0
 let payError = ''
 let receiptNo = ''
 let lastSavedIds: string[] = []
@@ -1960,12 +1965,30 @@ function validatePayment(): boolean {
     )
     return false
   }
-  if (payMode === 'online' && !paymentShot) {
-    payError = biText(
-      'After you pay, upload a screenshot.',
-      'ચુકવણી પછી સ્ક્રીનશૉટ અપલોડ કરો.',
-    )
-    return false
+  if (payMode === 'online') {
+    if (!paymentShot) {
+      payError = biText(
+        'After you pay, upload a screenshot.',
+        'ચુકવણી પછી સ્ક્રીનશૉટ અપલોડ કરો.',
+      )
+      return false
+    }
+    if (verifyingScreenshot) {
+      payError = biText(
+        'Screenshot is being verified. Please wait a moment.',
+        'સ્ક્રીનશૉટ ચકાસણી ચાલુ છે. કૃપા કરીને થોડી રાહ જુઓ.',
+      )
+      return false
+    }
+    if (screenshotVerification?.status !== 'ACCEPT') {
+      payError = screenshotVerification?.reason
+        ? biText(screenshotVerification.reason, screenshotVerification.reason)
+        : biText(
+            'Please upload a valid payment screenshot.',
+            'કૃપા કરીને માન્ય ચુકવણી સ્ક્રીનશૉટ અપલોડ કરો.',
+          )
+      return false
+    }
   }
   if (payMode === 'cash' && !cashCollector) {
     payError = biText(
@@ -2007,6 +2030,9 @@ function cricketRegistration(
     payMode: payMode || '',
     paidTo: payMode === 'cash' ? cashCollector : 'Online',
     amount: getFee(kind),
+    utrNo: screenshotVerification?.data?.utr || '',
+    paymentStatus: payMode === 'online' ? 'verified' : 'cash',
+    ocrDetails: screenshotVerification?.data || {},
     sports: [
       {
         sportId: kind,
@@ -2059,6 +2085,9 @@ function submit(): void {
       payMode: payMode || '',
       paidTo,
       amount,
+      utrNo: screenshotVerification?.data?.utr || '',
+      paymentStatus: payMode === 'online' ? 'verified' : 'cash',
+      ocrDetails: screenshotVerification?.data || {},
     })
   }
   if (pickTurf) batch.push(cricketRegistration('turf', `${receipt}-TF`, createdAt, receipt))
@@ -2151,6 +2180,8 @@ function clearFormFields(): void {
   cashCollector = ''
   paymentShot = ''
   paymentShotName = ''
+  screenshotVerification = null
+  verifyingScreenshot = false
   payError = ''
   receiptNo = ''
   lastSavedIds = []
@@ -3666,6 +3697,30 @@ function renderPay(): string {
                 : `<span class="pay-file">${bi('After payment, add a screenshot and submit.', 'ચુકવણી પછી સ્ક્રીનશૉટ ઉમેરીને સબમિટ કરો.')}</span>`
             }
           </label>
+          ${
+            verifyingScreenshot
+              ? `<div class="ocr-status is-verifying">
+                  <span class="ocr-spinner" aria-hidden="true"></span>
+                  <span>${bi('🔍 Verifying payment screenshot with OCR…', '🔍 OCR વડે સ્ક્રીનશૉટ ચકાસી રહ્યા છીએ…')}</span>
+                </div>`
+              : screenshotVerification?.status === 'ACCEPT'
+                ? `<div class="ocr-status is-success">
+                    <span class="ocr-badge-icon" aria-hidden="true">✓</span>
+                    <div class="ocr-badge-content">
+                      <strong>${bi('Payment Verified', 'ચકાસાયેલ ચુકવણી')}</strong>
+                      <p>${escapeHtml(screenshotVerification.data?.payment_app || 'UPI')} · ${screenshotVerification.data?.amount ? `₹${screenshotVerification.data.amount}` : ''}${screenshotVerification.data?.utr ? ` · UTR: ${escapeHtml(screenshotVerification.data.utr)}` : ''}</p>
+                    </div>
+                  </div>`
+                : screenshotVerification?.status === 'REJECT'
+                  ? `<div class="ocr-status is-error">
+                      <span class="ocr-badge-icon" aria-hidden="true">✕</span>
+                      <div class="ocr-badge-content">
+                        <strong>${bi('Verification Failed', 'ચકાસણી નિષ્ફળ')}</strong>
+                        <p>${escapeHtml(screenshotVerification.reason)}</p>
+                      </div>
+                    </div>`
+                  : ''
+          }
         </div>`
           : ''
       }
@@ -4166,9 +4221,13 @@ function renderNavFooter(): string {
       <button type="button" class="btn btn-ghost" data-action="share-receipt">${withIcon(iconShare(), bi('Share PDF', 'PDF શેર કરો'))}</button>
       <button type="button" class="btn btn-primary" data-action="reset">${withIcon(iconSpark(), bi('Start again', 'ફરી શરૂ કરો'))}</button>`
   } else if (phase.id === 'pay') {
+    const canSubmit =
+      (payMode === 'cash' || (payMode === 'online' && screenshotVerification?.status === 'ACCEPT')) &&
+      !submitBusy &&
+      !verifyingScreenshot
     buttons = `
       ${navBackButton()}
-      <button type="button" class="btn btn-gold" data-action="submit" ${payMode && !submitBusy ? '' : 'disabled'}>
+      <button type="button" class="btn btn-gold" data-action="submit" ${canSubmit ? '' : 'disabled'}>
         ${withIcon(iconCheck(), submitBusy ? bi('Saving…', 'સાચવી રહ્યા છીએ…') : bi('Submit', 'સબમિટ'))}
       </button>`
   } else if (phase.id === 'review') {
@@ -4403,21 +4462,60 @@ async function applyPhoto(file: File): Promise<void> {
 }
 
 async function applyPaymentShot(file: File): Promise<void> {
-  payError = biText('Preparing screenshot…', 'સ્ક્રીનશૉટ તૈયાર થઈ રહ્યો છે…')
+  if (!file.type.startsWith('image/')) {
+    payError = biText('Upload a photo of the payment.', 'ચુકવણીનો ફોટો અપલોડ કરો.')
+    paymentShot = ''
+    paymentShotName = ''
+    screenshotVerification = null
+    verifyingScreenshot = false
+    render()
+    return
+  }
+  if (file.size > 20 * 1024 * 1024) {
+    payError = biText('Screenshot must be under 20 MB.', 'સ્ક્રીનશૉટ 20 MBથી નાનો હોવો જોઈએ.')
+    paymentShot = ''
+    paymentShotName = ''
+    screenshotVerification = null
+    verifyingScreenshot = false
+    render()
+    return
+  }
+
   paymentShotName = file.name
+  payError = ''
+  verifyingScreenshot = true
+  screenshotVerification = null
   render()
+
+  const currentSeq = ++screenshotVerifySeq
   try {
     const optimized = await optimizePhoto(file)
+    if (currentSeq !== screenshotVerifySeq) return
     paymentShot = optimized.dataUrl
-    payError = ''
+    render()
+
+    const res = await verifyPaymentScreenshotApi(paymentShot, amountDue())
+    if (currentSeq !== screenshotVerifySeq) return
+    screenshotVerification = res
+    verifyingScreenshot = false
+    if (res.status === 'REJECT') {
+      payError = res.reason
+    } else {
+      payError = ''
+    }
   } catch (error) {
-    paymentShot = ''
-    payError =
-      error instanceof Error
-        ? error.message
-        : biText('Could not use this screenshot.', 'આ સ્ક્રીનશૉટ વાપરી શકાયો નહીં.')
+    if (currentSeq !== screenshotVerifySeq) return
+    verifyingScreenshot = false
+    screenshotVerification = {
+      status: 'REJECT',
+      reason: error instanceof Error ? error.message : 'Verification request failed',
+    }
+    payError = screenshotVerification.reason
+  } finally {
+    if (currentSeq === screenshotVerifySeq) {
+      render()
+    }
   }
-  render()
 }
 
 function bindEvents(): void {
@@ -4642,6 +4740,10 @@ function bindEvents(): void {
       } else if (action === 'pay-mode' && (btn.dataset.mode === 'online' || btn.dataset.mode === 'cash')) {
         payMode = btn.dataset.mode
         payError = ''
+        if (payMode === 'cash') {
+          screenshotVerification = null
+          verifyingScreenshot = false
+        }
         render()
       } else if (action === 'copy-text' && btn.dataset.copy) {
         const copied = btn.dataset.copy
