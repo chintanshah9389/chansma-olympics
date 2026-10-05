@@ -475,7 +475,6 @@ function rowHtml(row: FlatRow, index: number): string {
           <button type="button" class="btn btn-ghost btn-compact" data-preview-receipt="${escapeHtml(r.receiptNo || r.id)}">View PDF</button>
         </div>
         ${r.payMode ? `<div class="pay-note">${escapeHtml(r.payMode === 'cash' ? `Cash · ${r.paidTo || '—'}` : `Online${r.amount ? ` · ₹${r.amount}` : ''}`)}</div>` : ''}
-        ${r.utrNo ? `<div class="utr-note" style="font-size:0.75rem; color:#0369a1; font-family:monospace;">UTR: ${escapeHtml(r.utrNo)}</div>` : ''}
         ${uploadLink(s?.photoUrl, 'Player photo')}
         ${uploadLink(r.paymentShotUrl, 'Payment screenshot')}
       </td>
@@ -678,7 +677,6 @@ function downloadCsv(rows: FlatRow[]): void {
     'Payment Mode',
     'Paid To',
     'Amount',
-    'UTR No',
     'Player Photo URL',
     'Payment Screenshot URL',
     'Receipt PDF URL',
@@ -716,7 +714,6 @@ function downloadCsv(rows: FlatRow[]): void {
         payModeLabel(r.payMode),
         r.paidTo ?? '',
         r.amount != null ? String(r.amount) : '',
-        r.utrNo ?? '',
         absoluteUploadUrl(s?.photoUrl),
         absoluteUploadUrl(r.paymentShotUrl),
         absoluteUploadUrl(r.receiptPdfUrl),

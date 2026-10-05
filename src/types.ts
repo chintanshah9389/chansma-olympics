@@ -72,33 +72,6 @@ export interface Registration {
   paymentShotUrl?: string
   /** Site path such as /uploads/receipts/….pdf */
   receiptPdfUrl?: string
-  utrNo?: string
-  paymentStatus?: string
-  ocrDetails?: Record<string, any>
-}
-
-export interface ScreenshotVerificationData {
-  ocr_text?: string
-  payment_app?: string
-  payment_success?: boolean
-  amount?: number | null
-  expected_amount?: number | null
-  utr?: string
-  confidence?: number
-  is_duplicate?: boolean
-  duplicate_reg_id?: string
-  checks?: {
-    valid_image?: boolean
-    payment_indicator?: boolean
-    amount_match?: boolean
-    utr_found?: boolean
-  }
-}
-
-export interface ScreenshotVerificationResult {
-  status: 'ACCEPT' | 'REJECT'
-  reason: string
-  data?: ScreenshotVerificationData | null
 }
 
 export interface FormState {

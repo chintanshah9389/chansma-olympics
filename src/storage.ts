@@ -15,7 +15,6 @@ import type {
   SeatSportId,
   SelectedSport,
   SportId,
-  ScreenshotVerificationResult,
 } from './types'
 import { applyAgeLimits, getAgeLimits, getSportAgeLimit, type SportAgeLimits } from './ageLimits'
 import { applyCapacities, getCapacities, sportCapacity, type SportCapacities } from './sports'
@@ -809,39 +808,3 @@ export function createId(): string {
   for (const b of bytes) code += alphabet[b % alphabet.length]
   return `CHN-${code}`
 }
-
-export async function verifyPaymentScreenshotApi(
-  image: string,
-  expectedAmount: number,
-  excludeId?: string,
-): Promise<ScreenshotVerificationResult> {
-  try {
-    const response = await fetch(apiUrl('/api/payments/verify-screenshot'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image, expectedAmount, excludeId }),
-    })
-    if (!response.ok) {
-      const errBody = (await response.json().catch(() => null)) as {
-        reason?: string
-        error?: string
-      } | null
-      return {
-        status: 'REJECT',
-        reason:
-          errBody?.reason ||
-          errBody?.error ||
-          `Verification request failed (${response.status})`,
-        data: null,
-      }
-    }
-    return (await response.json()) as ScreenshotVerificationResult
-  } catch (error) {
-    return {
-      status: 'REJECT',
-      reason: error instanceof Error ? error.message : 'Could not reach verification service',
-      data: null,
-    }
-  }
-}
-
