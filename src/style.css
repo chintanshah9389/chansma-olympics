@@ -4969,12 +4969,12 @@ img.sport-icon {
 
 .receipt-sponsor-pill {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.25rem 0.4rem;
+  gap: 0.28rem;
   margin: 0.15rem 0 0;
-  padding: 0.28rem 0.7rem 0.32rem;
+  padding: 0.35rem 0.75rem 0.4rem;
   border-radius: 14px;
   background: var(--navy);
   color: rgba(255, 255, 255, 0.78);
@@ -4985,21 +4985,81 @@ img.sport-icon {
   max-width: 100%;
 }
 
-.receipt-sponsor-pill strong {
+.receipt-sponsor-pill .sponsor-kicker {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(240, 193, 75, 0.14);
   color: var(--gold-bright);
-  letter-spacing: 0.06em;
+  box-shadow: inset 0 0 0 1px rgba(240, 193, 75, 0.28);
 }
 
-.receipt-sponsor-pill {
-  flex-direction: column;
-  gap: 0.28rem;
+.receipt-sponsor-pill .sponsor-lockup {
+  gap: 0.4rem;
+}
+
+.receipt-sponsor-pill .sponsor-mark {
+  width: 1.9rem;
+  height: 1.9rem;
 }
 
 .receipt-sponsor-pill .sponsor-logo {
-  width: 2.2rem;
-  height: 2.2rem;
+  width: 1.15rem;
+  height: 1.15rem;
   margin: 0;
   filter: brightness(0) invert(1);
+}
+
+.receipt-sponsor-pill strong,
+.receipt-sponsor-pill .sponsor-title {
+  color: var(--gold-bright);
+  letter-spacing: 0.05em;
+}
+
+.receipt-sponsor-pill .sponsor-name small {
+  max-width: 16rem;
+  font-size: 0.58rem;
+}
+
+.receipt-capture-host {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 640px;
+  max-width: 100%;
+  z-index: 70;
+  pointer-events: none;
+  background: #fff;
+}
+
+.receipt-capture-host[data-lang='en'] .i18n-gu,
+.receipt-capture-host[data-lang='en'] .i18n-sep,
+.receipt-capture-host[data-lang='gu'] .i18n-en,
+.receipt-capture-host[data-lang='gu'] .i18n-sep,
+.is-pdf-capture[data-lang='en'] .i18n-gu,
+.is-pdf-capture[data-lang='en'] .i18n-sep,
+.is-pdf-capture[data-lang='gu'] .i18n-en,
+.is-pdf-capture[data-lang='gu'] .i18n-sep {
+  display: none !important;
+}
+
+.is-pdf-capture,
+.is-pdf-capture h2,
+.is-pdf-capture .receipt-wordmark,
+.is-pdf-capture .bill-total strong,
+.is-pdf-capture .pay-total strong {
+  font-family: var(--font-body);
+}
+
+.is-pdf-capture h2 {
+  font-size: 1.45rem;
+  letter-spacing: 0.04em;
+  font-weight: 800;
+}
+
+.is-pdf-capture .receipt-wordmark {
+  font-size: 1.55rem;
+  letter-spacing: 0.06em;
+  line-height: 1.05;
 }
 
 .receipt-paid {
@@ -5483,7 +5543,7 @@ body[data-lang='gu'] .i18n-sep {
 .receipt-offer {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 130;
   display: grid;
   place-items: end center;
   padding: 1rem;

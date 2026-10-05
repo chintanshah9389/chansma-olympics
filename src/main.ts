@@ -178,6 +178,11 @@ function sponsorBlockHtml(
   return `<span class="sponsor-kicker">${bi(labelEn, labelGu)}</span><span class="sponsor-lockup"><span class="sponsor-mark">${sponsorLogoHtml()}</span>${sponsorStrongHtml()}</span>`
 }
 
+function receiptSponsorHtml(): string {
+  const label = uiLang === 'gu' ? 'ઇવેન્ટ પાર્ટનર' : 'Event partner'
+  return `<span class="sponsor-kicker">${escapeHtml(label)}</span><span class="sponsor-lockup"><span class="sponsor-mark">${sponsorLogoHtml()}</span>${sponsorStrongHtml()}</span>`
+}
+
 const state: FormState = {
   fullName: '',
   mobile: '',
@@ -3281,7 +3286,7 @@ function renderDone(): string {
               <circle cx="136" cy="18" r="12" stroke="#df0024" />
             </g>
           </svg>
-          <p class="receipt-sponsor-pill">${sponsorBlockHtml()}</p>
+          <p class="receipt-sponsor-pill">${receiptSponsorHtml()}</p>
         </header>
         <h2>${bi('Payment receipt', 'ચુકવણીની રસીદ')}</h2>
         <p class="receipt-no">${escapeHtml(receiptNo)}</p>
@@ -3308,57 +3313,92 @@ function renderDone(): string {
   `
 }
 
-function isMobileDevice(): boolean {
-  return (
-    window.matchMedia('(max-width: 720px)').matches ||
-    /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-  )
-}
-
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
     requestAnimationFrame(() => resolve())
   })
 }
 
+function applyCaptureLanguage(root: ParentNode, lang: 'en' | 'gu'): void {
+  const hide = lang === 'en' ? '.i18n-gu, .i18n-sep' : '.i18n-en, .i18n-sep'
+  root.querySelectorAll<HTMLElement>(hide).forEach((el) => {
+    el.style.setProperty('display', 'none', 'important')
+  })
+}
+
+async function waitForElementReady(root: HTMLElement): Promise<void> {
+  if (document.fonts?.ready) await document.fonts.ready
+  await Promise.all(
+    [...root.querySelectorAll('img')].map((img) => {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve()
+      return new Promise<void>((resolve) => {
+        const done = () => resolve()
+        img.addEventListener('load', done, { once: true })
+        img.addEventListener('error', done, { once: true })
+        window.setTimeout(done, 2500)
+      })
+    }),
+  )
+  await nextFrame()
+  await nextFrame()
+}
+
+async function waitForReceiptThenDownload(): Promise<void> {
+  const deadline = Date.now() + 5000
+  let sheet = document.getElementById('receipt-sheet')
+  while (!sheet && Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 40))
+    sheet = document.getElementById('receipt-sheet')
+  }
+  if (!sheet) return
+  await waitForElementReady(sheet)
+  await downloadReceipt()
+}
+
 async function captureReceiptCanvas(
   sheet: HTMLElement,
 ): Promise<HTMLCanvasElement> {
   const { default: html2canvas } = await import('html2canvas-pro')
-  const meta = document.querySelector('meta[name="viewport"]')
-  const previousViewport = meta?.getAttribute('content') ?? ''
-  const previousScroll = window.scrollY
-  const previousWidth = sheet.style.width
-  const previousMaxWidth = sheet.style.maxWidth
-  const mobile = isMobileDevice()
-  if (mobile) {
-    meta?.setAttribute('content', 'width=800, initial-scale=1, maximum-scale=1')
-    await nextFrame()
-    await nextFrame()
-  }
-  sheet.style.width = '640px'
-  sheet.style.maxWidth = '640px'
-  window.scrollTo(0, 0)
-  await nextFrame()
+  const width = 640
+  const host = document.createElement('div')
+  host.className = 'receipt-capture-host'
+  host.dataset.lang = uiLang
+  const clone = sheet.cloneNode(true) as HTMLElement
+  clone.removeAttribute('id')
+  clone.classList.add('is-pdf-capture')
+  clone.style.width = `${width}px`
+  clone.style.maxWidth = `${width}px`
+  clone.style.margin = '0'
+  clone.style.overflow = 'visible'
+  applyCaptureLanguage(clone, uiLang)
+  host.appendChild(clone)
+  document.body.appendChild(host)
+  await waitForElementReady(clone)
   try {
-    if (document.fonts?.ready) await document.fonts.ready
-    await Promise.all(
-      [...sheet.querySelectorAll('img')].map((img) =>
-        img.decode?.().catch(() => undefined) ?? Promise.resolve(),
-      ),
-    )
-    const canvas = await html2canvas(sheet, {
+    const height = Math.max(clone.scrollHeight, clone.offsetHeight)
+    const canvas = await html2canvas(clone, {
       backgroundColor: '#ffffff',
       scale: 2,
       useCORS: true,
+      logging: false,
+      width,
+      height,
+      windowWidth: width,
+      windowHeight: height,
       scrollX: 0,
       scrollY: 0,
-      windowWidth: 800,
-      onclone: (_doc, copy) => {
-        copy.style.width = '640px'
-        copy.style.maxWidth = '640px'
-        copy.style.background = '#ffffff'
+      onclone: (doc, copy) => {
+        doc.documentElement.lang = uiLang
+        doc.documentElement.dataset.lang = uiLang
+        doc.body.dataset.lang = uiLang
+        doc.body.style.overflow = 'visible'
+        doc.documentElement.style.overflow = 'visible'
+        applyCaptureLanguage(copy, uiLang)
+        copy.style.width = `${width}px`
+        copy.style.maxWidth = `${width}px`
+        copy.style.height = 'auto'
         copy.style.overflow = 'visible'
+        copy.style.background = '#ffffff'
         copy.querySelectorAll('img').forEach((img) => {
           img.style.maxWidth = '100%'
           if (
@@ -3377,10 +3417,7 @@ async function captureReceiptCanvas(
     }
     return canvas
   } finally {
-    sheet.style.width = previousWidth
-    sheet.style.maxWidth = previousMaxWidth
-    if (mobile && meta) meta.setAttribute('content', previousViewport)
-    window.scrollTo(0, previousScroll)
+    host.remove()
   }
 }
 
@@ -3668,9 +3705,7 @@ function render(): void {
 
   if (phase.id === 'done' && autoDownloadReceipt) {
     autoDownloadReceipt = false
-    window.setTimeout(() => {
-      void downloadReceipt()
-    }, 350)
+    void waitForReceiptThenDownload()
   }
 }
 
