@@ -1385,8 +1385,17 @@ app.use(
     maxAge: '7d',
   }),
 )
-app.use(express.static(distDir))
+app.use(
+  express.static(distDir, {
+    setHeaders(res, filePath) {
+      if (path.extname(filePath) === '.html') {
+        res.setHeader('Cache-Control', 'no-store')
+      }
+    },
+  }),
+)
 app.get(/^(?!\/api).*/, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
   res.sendFile(path.join(distDir, 'index.html'), (err) => {
     if (err) res.status(404).send('Frontend not built. Run npm run build.')
   })

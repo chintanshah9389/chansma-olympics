@@ -42,6 +42,7 @@ html,
 body {
   margin: 0;
   min-height: 100%;
+  max-width: 100%;
   overflow-x: clip;
 }
 
@@ -93,6 +94,8 @@ body::before {
   z-index: 1;
   min-height: 100vh;
   min-height: 100dvh;
+  max-width: 100%;
+  overflow-x: clip;
   display: grid;
   place-items: center;
   padding: 1.5rem;
@@ -246,6 +249,7 @@ body::before {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  overflow-x: clip;
   gap: 0.22rem;
   padding: 0.7rem 0.7rem 0.65rem;
   border: 0;
@@ -318,6 +322,7 @@ body::before {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  max-width: 100%;
   color: var(--gold-bright);
   font-size: 1.32rem;
   font-weight: 800;
@@ -347,15 +352,18 @@ body::before {
   position: relative;
   z-index: 1;
   display: block;
+  max-width: 100%;
   margin-top: 0.08rem;
-  padding-top: 0.22rem;
+  padding: 0.22rem 0.4rem 0 0.4rem;
   border-top: 1px solid rgba(240, 193, 75, 0.28);
   color: #fff;
-  font-size: 1rem;
+  font-size: clamp(0.62rem, 2.7vw, 1rem);
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   line-height: 1.2;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   opacity: 1;
 }
 
@@ -1747,7 +1755,9 @@ button.gate-card:hover {
   }
 
   .gate-banner-title {
-    font-size: 1.12rem;
+    font-size: 0.98rem;
+    letter-spacing: 0.04em;
+    white-space: normal;
   }
 
   .cricket-head {
@@ -1755,8 +1765,8 @@ button.gate-card:hover {
   }
 
   .cricket-date {
-    font-size: 0.62rem;
-    white-space: normal;
+    font-size: 0.58rem;
+    letter-spacing: 0.04em;
   }
 
   .gate-photo {
@@ -2112,6 +2122,9 @@ button.pick-box:hover,
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #fff;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .gate-card[data-tone='cricket'] {
@@ -2141,7 +2154,7 @@ button.pick-box:hover,
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--gold-bright);
-  white-space: nowrap;
+  white-space: normal;
   line-height: 1.2;
 }
 
@@ -3762,7 +3775,8 @@ details.entry-fold.fold {
   #app:not(:has(.shell-admin)) .panel-body {
     flex: 1 1 auto;
     min-height: 0;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
 
@@ -3943,8 +3957,8 @@ details.entry-fold.fold {
   }
 
   .masthead-face-sponsor .sponsor-line {
-    font-size: 0.88rem;
-    letter-spacing: 0.02em;
+    font-size: clamp(0.62rem, 2.7vw, 0.88rem);
+    letter-spacing: 0.015em;
     padding-top: 0.16rem;
   }
 
@@ -3961,7 +3975,8 @@ details.entry-fold.fold {
   .panel-body {
     --pad-x: 0.9rem;
     padding: 0.15rem var(--pad-x) 0;
-    overflow: visible;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .fade-step {
@@ -4554,7 +4569,8 @@ details.entry-fold.fold {
   }
 
   .gate-banner-title {
-    font-size: 1.02rem;
+    font-size: 0.88rem;
+    letter-spacing: 0.03em;
   }
 
   .gate-photo {
@@ -4572,7 +4588,7 @@ details.entry-fold.fold {
   }
 
   .masthead-face-sponsor .sponsor-line {
-    font-size: 0.82rem;
+    font-size: clamp(0.58rem, 2.55vw, 0.82rem);
   }
 }
 
