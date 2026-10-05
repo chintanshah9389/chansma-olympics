@@ -93,7 +93,7 @@ export const GU = {
     'આ રમત હટાવો અથવા ખેલાડી વિગતો બદલો — આખું ફોર્મ ફરી ભરવાની જરૂર નથી.',
   changePlayerDetails: 'ખેલાડી વિગતો બદલો',
   removeThisSport: 'આ રમત હટાવો',
-  clearSection: 'આ વિભાગ સાફ કરો',
+  clearSection: 'આ વિભાગ રીસેટ કરો',
   changeCricketDetails: 'ક્રિકેટ વિગતો બદલો',
   removeTurf: 'ટર્ફ હટાવો',
   removeOverarm: 'ઓવરઆર્મ હટાવો',

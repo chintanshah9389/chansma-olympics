@@ -61,6 +61,12 @@ export const iconRefresh = (): string =>
     'icon icon-sm',
   )
 
+export const iconReset = (): string =>
+  svg(
+    `<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>`,
+    'icon icon-sm',
+  )
+
 export const iconDownload = (): string =>
   svg(
     `<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>`,

@@ -67,7 +67,6 @@ import {
   iconArrowLeft,
   iconArrowRight,
   iconCamera,
-  iconClear,
   iconCricket,
   iconCheck,
   iconDouble,
@@ -75,6 +74,7 @@ import {
   iconLive,
   iconMale,
   iconPhone,
+  iconReset,
   iconSingle,
   iconDownload,
   iconShare,
@@ -1530,8 +1530,8 @@ function clearFormatSection(id: SportId): void {
 }
 
 function formatClearButton(id: SportId): string {
-  const label = ui('Clear this section', GU.clearSection)
-  return `<button type="button" class="btn-icon-clear" data-action="clear-section" data-sport="${id}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">${iconClear()}</button>`
+  const label = ui('Reset this section', GU.clearSection)
+  return `<button type="button" class="btn-icon-reset" data-action="clear-section" data-sport="${id}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">${iconReset()}</button>`
 }
 
 function validatePayment(): boolean {
@@ -1983,10 +1983,6 @@ function renderStep1(): string {
         ${detailErrors.mobile ? `<span class="error">${bilingualHtml(detailErrors.mobile)}</span>` : ''}
       </div>
 
-      <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
-        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
-      </div>
     </div>
   `
 }
@@ -2084,10 +2080,6 @@ function renderStep2(): string {
           : ''
       }
 
-      <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
-        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
-      </div>
     </div>
   `
 }
@@ -2266,7 +2258,6 @@ function renderStep3(): string {
                   ? bi('Single', GU.single)
                   : bi('Choose format', 'ફોર્મેટ પસંદ કરો')
           const body = `
-            <div class="section-clear">${formatClearButton(id)}</div>
             ${slotBadgeHtml(id)}
             ${
               organizerAssignsPartner(id)
@@ -2314,7 +2305,7 @@ function renderStep3(): string {
             ${alreadyTaken ? indoorConflictActions(id, false) : ''}`
           return foldPanel(
             `format:${id}`,
-            `<span class="sport-heading">${sportIcon(id)} ${sportBi(id)}</span><span class="fold-status">${status}</span>`,
+            `<span class="sport-heading">${sportIcon(id)} ${sportBi(id)}</span><span class="fold-tools">${formatClearButton(id)}<span class="fold-status">${status}</span></span>`,
             body,
             foldOpen(`format:${id}`, index === 0, cardInvalid),
             `format-card ${isSingle || playerOnly ? 'is-single-mode' : ''} ${cardInvalid ? 'is-invalid' : ''}`,
@@ -2323,10 +2314,6 @@ function renderStep3(): string {
         })
         .join('')}
 
-      <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
-        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), phases()[phaseIndex + 1]?.id === 'review' ? bi('Review', GU.review) : bi('Continue', GU.continue))}</button>
-      </div>
     </div>
   `
 }
@@ -2356,14 +2343,6 @@ function renderStep4(): string {
         ${cricketReviewCard({ key: 'review:cricket', open: sports.length === 0 || cricketConflictLines().length > 0 })}
       </div>
 
-      <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
-        ${
-          blocked
-            ? `<button type="button" class="btn btn-gold" data-action="fix-conflict">${withIcon(iconArrowRight(), bi('Change player details', GU.changePlayerDetails))}</button>`
-            : `<button type="button" class="btn btn-gold" data-action="next">${withIcon(iconArrowRight(), bi('Continue to pay', 'ચુકવણી તરફ'))}</button>`
-        }
-      </div>
     </div>
   `
 }
@@ -2690,13 +2669,6 @@ function renderBegin(): string {
         ${showIndoor && showCricket ? `<div class="gate-and" aria-hidden="true">${bi('And', 'અને')}</div>` : ''}
         ${cricketCard}
       </div>
-      ${
-        showIndoor || showCricket
-          ? `<div class="actions">
-        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Next', 'આગળ'))}</button>
-      </div>`
-          : ''
-      }
     </div>
   `
 }
@@ -2737,10 +2709,6 @@ function renderCricketGender(): string {
         </button>`
             : ''
         }
-      </div>
-      <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
-        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
       </div>
     </div>
   `
@@ -2795,10 +2763,6 @@ function renderCricketChoice(): string {
         </button>`
             : ''
         }
-      </div>
-      <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
-        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
       </div>
     </div>
   `
@@ -2935,10 +2899,6 @@ function renderCricketForm(): string {
         ),
         'form-fold',
       )}
-      <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
-        <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>
-      </div>
     </div>
   `
 }
@@ -3283,12 +3243,6 @@ function renderPay(): string {
           : ''
       }
 
-      <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
-        <button type="button" class="btn btn-gold" data-action="submit" ${payMode && !submitBusy ? '' : 'disabled'}>
-          ${withIcon(iconCheck(), submitBusy ? bi('Saving…', 'સાચવી રહ્યા છીએ…') : bi('Submit', 'સબમિટ'))}
-        </button>
-      </div>
     </div>
   `
 }
@@ -3336,13 +3290,6 @@ function renderDone(): string {
           }
         </div>
       </article>
-      <div class="actions receipt-actions">
-        <button type="button" class="btn btn-ghost" data-action="download-receipt">${withIcon(iconDownload(), bi('Download PDF', 'PDF ડાઉનલોડ'))}</button>
-        <button type="button" class="btn btn-ghost" data-action="share-receipt">${withIcon(iconShare(), bi('Share PDF', 'PDF શેર કરો'))}</button>
-        <button type="button" class="btn btn-primary" data-action="reset">
-          ${withIcon(iconSpark(), bi('Start again', 'ફરી શરૂ કરો'))}
-        </button>
-      </div>
     </div>
   `
 }
@@ -3740,6 +3687,57 @@ function renderBody(): string {
   return renderStep4()
 }
 
+function navBackButton(): string {
+  return `<button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>`
+}
+
+function renderNavFooter(): string {
+  const phase = currentPhase()
+  let buttons = ''
+  let extraClass = ''
+
+  if (phase.id === 'begin') {
+    if (!indoorOpen() && !cricketOpen()) return ''
+    buttons = `<button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Next', 'આગળ'))}</button>`
+  } else if (phase.id === 'done') {
+    extraClass = ' panel-foot-receipt'
+    buttons = `
+      <button type="button" class="btn btn-ghost" data-action="download-receipt">${withIcon(iconDownload(), bi('Download PDF', 'PDF ડાઉનલોડ'))}</button>
+      <button type="button" class="btn btn-ghost" data-action="share-receipt">${withIcon(iconShare(), bi('Share PDF', 'PDF શેર કરો'))}</button>
+      <button type="button" class="btn btn-primary" data-action="reset">${withIcon(iconSpark(), bi('Start again', 'ફરી શરૂ કરો'))}</button>`
+  } else if (phase.id === 'pay') {
+    buttons = `
+      ${navBackButton()}
+      <button type="button" class="btn btn-gold" data-action="submit" ${payMode && !submitBusy ? '' : 'disabled'}>
+        ${withIcon(iconCheck(), submitBusy ? bi('Saving…', 'સાચવી રહ્યા છીએ…') : bi('Submit', 'સબમિટ'))}
+      </button>`
+  } else if (phase.id === 'review') {
+    const check = reviewGate()
+    const blocked = Boolean(submitError || !check.ok)
+    buttons = `
+      ${navBackButton()}
+      ${
+        blocked
+          ? `<button type="button" class="btn btn-gold" data-action="fix-conflict">${withIcon(iconArrowRight(), bi('Change player details', GU.changePlayerDetails))}</button>`
+          : `<button type="button" class="btn btn-gold" data-action="next">${withIcon(iconArrowRight(), bi('Continue to pay', 'ચુકવણી તરફ'))}</button>`
+      }`
+  } else if (phase.id === 'indoor' && phase.indoorStep === 3) {
+    const nextLabel =
+      phases()[phaseIndex + 1]?.id === 'review'
+        ? bi('Review', GU.review)
+        : bi('Continue', GU.continue)
+    buttons = `
+      ${navBackButton()}
+      <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), nextLabel)}</button>`
+  } else {
+    buttons = `
+      ${navBackButton()}
+      <button type="button" class="btn btn-primary" data-action="next">${withIcon(iconArrowRight(), bi('Continue', GU.continue))}</button>`
+  }
+
+  return `<footer class="panel-foot${extraClass}">${buttons}</footer>`
+}
+
 function render(): void {
   pruneDisabledSelections()
   setActiveEvent(pickIndoor ? 'indoor' : null)
@@ -3794,6 +3792,15 @@ function render(): void {
     // Remount body so CSS animations always restart on step change
     panelBody.replaceChildren()
     panelBody.innerHTML = body
+    const footHtml = renderNavFooter()
+    const existingFoot = panel.querySelector('.panel-foot')
+    if (footHtml) {
+      if (existingFoot) existingFoot.outerHTML = footHtml
+      else panel.insertAdjacentHTML('beforeend', footHtml)
+    } else {
+      existingFoot?.remove()
+    }
+    if (stepChanged) panelBody.scrollTop = 0
     if (scrollY !== null) {
       window.scrollTo({
         top: scrollY,
@@ -3810,6 +3817,7 @@ function render(): void {
         <div class="panel-body">
           ${body}
         </div>
+        ${renderNavFooter()}
       </main>
     </div>
   `
@@ -4118,7 +4126,10 @@ function bindEvents(): void {
 
     btn.addEventListener('click', (event) => {
       const action = btn.dataset.action
-      if (action === 'clear-section') event.stopPropagation()
+      if (action === 'clear-section') {
+        event.preventDefault()
+        event.stopPropagation()
+      }
       if (action === 'toggle-indoor') {
         if (!indoorOpen()) return
         pickIndoor = !pickIndoor
