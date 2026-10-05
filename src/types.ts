@@ -70,6 +70,8 @@ export interface Registration {
   amount?: number
   /** Site path such as /uploads/payments/….jpg */
   paymentShotUrl?: string
+  /** Site path such as /uploads/receipts/….pdf */
+  receiptPdfUrl?: string
   utrNo?: string
   paymentStatus?: string
   ocrDetails?: Record<string, any>

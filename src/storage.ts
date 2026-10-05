@@ -395,6 +395,24 @@ export async function saveCheckout(
   throw lastError || new Error(checkoutErrorMessage(502))
 }
 
+export async function storeReceiptPdf(
+  receiptNo: string,
+  ids: string[],
+  pdf: string,
+): Promise<string> {
+  const response = await fetch(apiUrl('/api/registrations/receipt-pdf'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ receiptNo, ids, pdf }),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(body?.error || `Could not store the receipt PDF (${response.status})`)
+  }
+  const data = (await response.json()) as { receiptPdfUrl?: string }
+  return data.receiptPdfUrl || ''
+}
+
 export async function deleteRegistration(id: string): Promise<void> {
   const response = await fetch(apiUrl(`/api/registrations/${encodeURIComponent(id)}`), {
     method: 'DELETE',

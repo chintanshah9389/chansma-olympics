@@ -3096,6 +3096,59 @@ details.entry-fold.fold {
   border-bottom: 1px solid var(--line);
 }
 
+.admin-fold {
+  padding: 0;
+}
+
+.admin-fold-summary {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 2.6rem 1.15rem 1.35rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.admin-fold-summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-fold-summary::marker {
+  content: '';
+}
+
+.admin-fold-summary::after {
+  content: '';
+  position: absolute;
+  top: 1.55rem;
+  right: 1.25rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid var(--navy);
+  border-bottom: 2px solid var(--navy);
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+}
+
+.admin-fold[open] > .admin-fold-summary::after {
+  transform: rotate(-135deg);
+  margin-top: 0.15rem;
+}
+
+.admin-fold-summary .capacity-sub {
+  max-width: 40rem;
+}
+
+.admin-fold-body {
+  padding: 0 1.35rem 1.35rem;
+}
+
+.admin-fold-body .capacity-toolbar {
+  margin-bottom: 0.9rem;
+}
+
 .capacity-top {
   display: flex;
   flex-wrap: wrap;
@@ -3310,6 +3363,188 @@ details.entry-fold.fold {
   color: #1565c0;
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+button.upload-link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.admin-views {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.9rem 1.25rem 0;
+}
+
+.admin-view-tab {
+  border: 1.5px solid var(--line);
+  background: #fff;
+  color: var(--navy);
+  border-radius: 999px;
+  padding: 0.45rem 0.95rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.admin-view-tab.is-selected {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+
+.admin-empty-copy {
+  margin: 1rem 1.25rem 1.5rem;
+  color: var(--muted);
+}
+
+.receipt-store {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16.5rem, 1fr));
+  gap: 1rem;
+  padding: 0.5rem 1.25rem 1.5rem;
+}
+
+.receipt-store-card {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.75rem;
+  border: 1.5px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.receipt-store-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  border-radius: 12px;
+  background: #eef2f6;
+  cursor: pointer;
+}
+
+.receipt-store-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.receipt-store-blank {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.receipt-store-copy p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.receipt-store-no {
+  color: var(--navy) !important;
+  font-weight: 800;
+}
+
+.receipt-store-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.receipt-store-missing {
+  font-size: 0.75rem;
+  color: #8a6500;
+  font-weight: 700;
+  align-self: center;
+}
+
+.admin-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(8, 16, 28, 0.72);
+}
+
+.admin-preview {
+  width: min(1100px, 100%);
+  max-height: min(94vh, 980px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+}
+
+.admin-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-preview-head h3 {
+  margin: 0 0 0.2rem;
+}
+
+.admin-preview-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.admin-preview-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.admin-preview-body {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem 1.15rem 1.25rem;
+}
+
+.admin-preview-pdf {
+  width: 100%;
+  min-height: 70vh;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f4f6f8;
+}
+
+.admin-preview-shot {
+  margin: 0;
+}
+
+.admin-preview-shot img {
+  display: block;
+  width: min(100%, 640px);
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+
+.admin-preview-shot figcaption {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--muted);
 }
 
 .capacity-table input[type='number'] {
@@ -3745,6 +3980,17 @@ details.entry-fold.fold {
   background: rgba(11, 31, 58, 0.06);
   padding: 0.15rem 0.4rem;
   border-radius: 6px;
+}
+
+.admin-table .ref-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.admin-table .ref-line .btn {
+  flex: 0 0 auto;
 }
 
 .admin-table .col-when {
@@ -4461,6 +4707,23 @@ details.entry-fold.fold {
 
   .capacity-panel {
     padding: 1rem 0.9rem 1.1rem;
+  }
+
+  .admin-fold {
+    padding: 0;
+  }
+
+  .admin-fold-summary {
+    padding: 0.95rem 2.2rem 0.95rem 0.9rem;
+  }
+
+  .admin-fold-summary::after {
+    right: 0.95rem;
+    top: 1.2rem;
+  }
+
+  .admin-fold-body {
+    padding: 0 0.9rem 1.1rem;
   }
 
   .capacity-top {
