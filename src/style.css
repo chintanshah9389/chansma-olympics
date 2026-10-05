@@ -232,10 +232,10 @@ body::before {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.32rem;
-  margin: 0.6rem 0 0;
-  padding: 0.55rem 0.85rem 0.52rem;
-  border-radius: 16px;
+  gap: 0.18rem;
+  margin: 0.45rem 0 0;
+  padding: 0.42rem 0.7rem 0.4rem;
+  border-radius: 14px;
   border: 1px solid rgba(240, 193, 75, 0.28);
   background:
     radial-gradient(ellipse 80% 140% at 8% 50%, rgba(240, 193, 75, 0.2), transparent 52%),
@@ -275,24 +275,59 @@ body::before {
   pointer-events: none;
 }
 
-.masthead-sponsor span,
 .sponsor-kicker {
   position: relative;
   z-index: 1;
   font-size: 0.62rem;
   font-weight: 800;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   line-height: 1.1;
 }
 
-.masthead-sponsor .sponsor-kicker,
-.site-foot .sponsor-kicker {
-  padding: 0.18rem 0.55rem;
+.masthead-sponsor .sponsor-kicker {
+  padding: 0.12rem 0.5rem;
   border-radius: 999px;
   background: rgba(240, 193, 75, 0.14);
   color: var(--gold-bright);
   box-shadow: inset 0 0 0 1px rgba(240, 193, 75, 0.28);
+}
+
+.masthead-sponsor .sponsor-lockup {
+  position: relative;
+  z-index: 1;
+  gap: 0.45rem;
+}
+
+.masthead-sponsor .sponsor-mark {
+  width: 2.15rem;
+  height: 2.15rem;
+}
+
+.masthead-sponsor .sponsor-logo {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.masthead-sponsor .sponsor-name {
+  align-items: flex-start;
+  gap: 0.08rem;
+  text-align: left;
+}
+
+.masthead-sponsor .sponsor-title {
+  color: var(--gold-bright);
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  line-height: 1.1;
+}
+
+.masthead-sponsor .sponsor-name small {
+  max-width: 16.5rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.03em;
+  line-height: 1.25;
 }
 
 .sponsor-logo {
@@ -346,6 +381,10 @@ body::before {
   letter-spacing: 0.06em;
   line-height: 1.15;
   text-transform: uppercase;
+}
+
+.sponsor-title {
+  display: block;
 }
 
 .sponsor-name {
@@ -3551,22 +3590,6 @@ details.entry-fold.fold {
     overflow: hidden;
   }
 
-  #app:not(:has(.shell-admin)) .site-foot {
-    flex: 0 0 auto;
-    margin-top: 0.4rem;
-    padding: 0.42rem 0.65rem 0.4rem;
-  }
-
-  .site-foot .sponsor-name small,
-  .site-foot-meta {
-    display: none;
-  }
-
-  .site-foot .sponsor-mark {
-    width: 2.15rem;
-    height: 2.15rem;
-  }
-
   #app:not(:has(.shell-admin)) .progress-track {
     position: static;
     flex: 0 0 auto;
@@ -3714,18 +3737,34 @@ details.entry-fold.fold {
   }
 
   .masthead-sponsor {
-    margin-top: 0.45rem;
-    padding: 0.32rem 0.6rem 0.36rem;
+    margin-top: 0.38rem;
+    padding: 0.36rem 0.55rem 0.34rem;
+    gap: 0.14rem;
   }
 
-  .masthead-sponsor span {
-    font-size: 0.56rem;
-    letter-spacing: 0.1em;
+  .masthead-sponsor .sponsor-kicker {
+    font-size: 0.54rem;
+    letter-spacing: 0.12em;
+    padding: 0.1rem 0.42rem;
   }
 
-  .masthead-sponsor strong {
-    font-size: 0.92rem;
-    letter-spacing: 0.08em;
+  .masthead-sponsor .sponsor-mark {
+    width: 1.9rem;
+    height: 1.9rem;
+  }
+
+  .masthead-sponsor .sponsor-logo {
+    width: 1.2rem;
+    height: 1.2rem;
+  }
+
+  .masthead-sponsor .sponsor-title {
+    font-size: 0.82rem;
+  }
+
+  .masthead-sponsor .sponsor-name small {
+    max-width: 14.5rem;
+    font-size: 0.54rem;
   }
 
   .masthead .lang-tabs {

@@ -164,7 +164,7 @@ const SPONSOR_LOGO = '/rayson-jewels.png'
 const SPONSOR_MARK = '/rayson-mark.png'
 
 function sponsorStrongHtml(): string {
-  return `<strong class="sponsor-name">${escapeHtml(MAIN_SPONSOR)}<small>(${escapeHtml(MAIN_SPONSOR_LINE)})</small></strong>`
+  return `<strong class="sponsor-name"><span class="sponsor-title">${escapeHtml(MAIN_SPONSOR)}</span><small>(${escapeHtml(MAIN_SPONSOR_LINE)})</small></strong>`
 }
 
 function sponsorLogoHtml(): string {
@@ -2582,7 +2582,6 @@ function disclaimerHtml(): string {
           </div>
         </div>
         <footer class="disclaimer-foot">
-          <p class="disclaimer-foot-sponsor">${sponsorBlockHtml()}</p>
           <button type="button" class="btn btn-gold" data-action="begin-form">${bi("Let's Begin", 'ચાલો શરૂ કરીએ')}</button>
         </footer>
       </div>
@@ -3644,13 +3643,6 @@ function render(): void {
           ${body}
         </div>
       </main>
-      <footer class="site-foot">
-        <p class="site-foot-sponsor">${sponsorBlockHtml()}</p>
-        <p class="site-foot-meta">${bi(
-          'Shree Chanasma Jain Yuva Group · 9–10 Jan 2027',
-          'શ્રી ચાણસ્મા જૈન યુવા ગ્રુપ · ૯–૧૦ જાન્યુઆરી ૨૦૨૭',
-        )}</p>
-      </footer>
     </div>
   `
   }
