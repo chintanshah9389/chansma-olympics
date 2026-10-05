@@ -67,9 +67,21 @@ export const iconDownload = (): string =>
     'icon icon-sm',
   )
 
+export const iconShare = (): string =>
+  svg(
+    `<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/>`,
+    'icon icon-sm',
+  )
+
 export const iconTrash = (): string =>
   svg(
     `<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/>`,
+    'icon icon-sm',
+  )
+
+export const iconClear = (): string =>
+  svg(
+    `<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/>`,
     'icon icon-sm',
   )
 

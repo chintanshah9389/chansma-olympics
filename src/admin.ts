@@ -709,7 +709,7 @@ function renderLogin(root: HTMLElement): void {
         <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
         <div class="olympic-rings" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
         <p>Admin sign in</p>
-        <div class="brand-sponsor"><span>Main sponsor</span><strong>Jarin Bhai</strong></div>
+        <div class="brand-sponsor"><span>Event partner</span><span class="sponsor-lockup"><span class="sponsor-mark"><img class="sponsor-logo" src="/rayson-mark.png" alt="" /></span><strong class="sponsor-name">RAYSON JEWELS LLP<small>(MATUSHREE KANTABEN NAROTTAMDAS SHAH PARIVAR)</small></strong></span></div>
       </header>
       <main class="panel">
         <div class="panel-body">
@@ -863,7 +863,7 @@ export function renderAdmin(root: HTMLElement): void {
         <img class="brand-logo" src="/chanasma-logo.png" alt="શ્રી ચાણસ્મા જૈન યુવા યુથ" />
         <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
         <p>${isSuperAdmin() ? 'Super admin · full dashboard' : 'Admin dashboard · registrations'}</p>
-        <div class="brand-sponsor"><span>Main sponsor</span><strong>Jarin Bhai</strong></div>
+        <div class="brand-sponsor"><span>Event partner</span><span class="sponsor-lockup"><span class="sponsor-mark"><img class="sponsor-logo" src="/rayson-mark.png" alt="" /></span><strong class="sponsor-name">RAYSON JEWELS LLP<small>(MATUSHREE KANTABEN NAROTTAMDAS SHAH PARIVAR)</small></strong></span></div>
       </header>
 
       <main class="panel panel-admin">

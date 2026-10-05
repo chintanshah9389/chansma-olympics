@@ -333,29 +333,65 @@ export async function saveRegistration(
   await refreshRegistrations()
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+function checkoutErrorMessage(status: number, error?: string): string {
+  if (error) return error
+  if (status === 502 || status === 503 || status === 504) {
+    return biText(
+      'The server dropped the save. Please tap Submit again.',
+      'સર્વરે નોંધણી સાચવી નહીં. કૃપા કરીને ફરી Submit દબાવો.',
+    )
+  }
+  return `Save failed (${status})`
+}
+
 export async function saveCheckout(
   registrations: Registration[],
   paymentShot = '',
 ): Promise<Registration[]> {
-  const response = await fetch(apiUrl('/api/registrations/checkout'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ registrations, paymentShot }),
-  })
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: string
-    } | null
-    throw new Error(
-      biText(
-        body?.error || `Save failed (${response.status})`,
-        GU.errSaveFailed,
-      ),
-    )
+  const payload = JSON.stringify({ registrations, paymentShot })
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(apiUrl('/api/registrations/checkout'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      })
+      if (response.status === 502 || response.status === 503 || response.status === 504) {
+        lastError = new Error(checkoutErrorMessage(response.status))
+        await wait(500 * (attempt + 1))
+        continue
+      }
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string
+        } | null
+        throw new Error(
+          biText(
+            checkoutErrorMessage(response.status, body?.error),
+            GU.errSaveFailed,
+          ),
+        )
+      }
+      const data = (await response.json()) as Registration[]
+      await refreshRegistrations()
+      return Array.isArray(data) ? data : []
+    } catch (error) {
+      const retryable =
+        error instanceof TypeError ||
+        (error instanceof Error && error.message.startsWith('The server dropped'))
+      if (!retryable) throw error
+      lastError = error instanceof Error ? error : new Error('Save failed')
+      await wait(500 * (attempt + 1))
+    }
   }
-  const data = (await response.json()) as Registration[]
-  await refreshRegistrations()
-  return Array.isArray(data) ? data : []
+  throw lastError || new Error(checkoutErrorMessage(502))
 }
 
 export async function deleteRegistration(id: string): Promise<void> {

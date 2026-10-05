@@ -67,6 +67,7 @@ import {
   iconArrowLeft,
   iconArrowRight,
   iconCamera,
+  iconClear,
   iconCricket,
   iconCheck,
   iconDouble,
@@ -75,6 +76,8 @@ import {
   iconMale,
   iconPhone,
   iconSingle,
+  iconDownload,
+  iconShare,
   iconSpark,
   iconUser,
   sportIcon,
@@ -155,6 +158,26 @@ const emptyDoublesPlayer = (): DoublesPlayer => ({
   age: '',
 })
 
+const MAIN_SPONSOR = 'RAYSON JEWELS LLP'
+const MAIN_SPONSOR_LINE = 'MATUSHREE KANTABEN NAROTTAMDAS SHAH PARIVAR'
+const SPONSOR_LOGO = '/rayson-jewels.png'
+const SPONSOR_MARK = '/rayson-mark.png'
+
+function sponsorStrongHtml(): string {
+  return `<strong class="sponsor-name">${escapeHtml(MAIN_SPONSOR)}<small>(${escapeHtml(MAIN_SPONSOR_LINE)})</small></strong>`
+}
+
+function sponsorLogoHtml(): string {
+  return `<img class="sponsor-logo" src="${SPONSOR_MARK}" alt="" />`
+}
+
+function sponsorBlockHtml(
+  labelEn = 'Event partner',
+  labelGu = 'ઇવેન્ટ પાર્ટનર',
+): string {
+  return `<span class="sponsor-kicker">${bi(labelEn, labelGu)}</span><span class="sponsor-lockup"><span class="sponsor-mark">${sponsorLogoHtml()}</span>${sponsorStrongHtml()}</span>`
+}
+
 const state: FormState = {
   fullName: '',
   mobile: '',
@@ -231,6 +254,9 @@ let stepAnimDir: 'forward' | 'back' = 'forward'
 let suppressBlurRenderUntil = 0
 /** After render, scroll/focus the first invalid field */
 let shouldRevealErrors = false
+let pageLoaderBusy = false
+let autoDownloadReceipt = false
+let receiptPdfBusy = false
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
@@ -796,6 +822,50 @@ function canSubmit(): { ok: boolean; message: string } {
   return { ok: true, message: '' }
 }
 
+function cricketConflictLines(): { kind: CricketKind; message: string }[] {
+  const lines: { kind: CricketKind; message: string }[] = []
+  if (pickTurf) {
+    const message = describeCricketConflict('turf', cricketEntry.mobile)
+    if (message) lines.push({ kind: 'turf', message })
+  }
+  if (pickOverarm) {
+    const message = describeCricketConflict('overarm', cricketEntry.mobile)
+    if (message) lines.push({ kind: 'overarm', message })
+  }
+  return lines
+}
+
+function reviewGate(): { ok: boolean; message: string } {
+  if (pickIndoor) {
+    const indoor = canSubmit()
+    if (!indoor.ok) return indoor
+  }
+  const cricket = cricketConflictLines()
+  if (cricket[0]) return { ok: false, message: cricket[0].message }
+  return { ok: true, message: '' }
+}
+
+function firstIndoorConflict(): SelectedSport | null {
+  if (!pickIndoor) return null
+  for (const sport of buildSelectedSports()) {
+    if (sport.sportId === 'turf' || sport.sportId === 'overarm') continue
+    if (describeSportConflict(sport, sportLabel(sport.sportId), state.mobile)) {
+      return sport
+    }
+  }
+  return null
+}
+
+function reviewConflictActions(): string {
+  const indoor = firstIndoorConflict()
+  if (indoor && indoor.sportId !== 'turf' && indoor.sportId !== 'overarm') {
+    return indoorConflictActions(indoor.sportId, true)
+  }
+  const cricket = cricketConflictLines()
+  if (cricket.length) return cricketConflictActions(cricket.map((item) => item.kind))
+  return ''
+}
+
 function phases(): FlowPhase[] {
   const list: FlowPhase[] = [{ id: 'begin' }]
   if (pickIndoor) {
@@ -828,6 +898,37 @@ function phaseKey(phase: FlowPhase): string {
 function currentPhase(): FlowPhase {
   const list = phases()
   return list[Math.min(phaseIndex, list.length - 1)] ?? { id: 'begin' }
+}
+
+function pageLoaderHtml(): string {
+  return `
+    <div class="page-loader" role="status" aria-live="polite">
+      <div class="page-loader-card">
+        <p class="page-loader-kicker">${bi('Event partner', 'ઇવેન્ટ પાર્ટનર')}</p>
+        <div class="page-loader-logo">
+          <img src="${SPONSOR_LOGO}" alt="${escapeAttr(MAIN_SPONSOR)}" />
+        </div>
+        <p class="page-loader-name">${escapeHtml(MAIN_SPONSOR)}</p>
+        <p class="page-loader-sub">${escapeHtml(MAIN_SPONSOR_LINE)}</p>
+        <div class="page-loader-bar" aria-hidden="true"><i></i></div>
+      </div>
+    </div>`
+}
+
+function withPageLoader(next: () => void): void {
+  if (pageLoaderBusy) return
+  pageLoaderBusy = true
+  document.querySelector('.page-loader')?.remove()
+  document.body.insertAdjacentHTML('beforeend', pageLoaderHtml())
+  window.setTimeout(() => {
+    document.querySelector('.page-loader')?.remove()
+    pageLoaderBusy = false
+    next()
+  }, 400)
+}
+
+function advancePhase(): void {
+  withPageLoader(() => movePhase(1))
 }
 
 function movePhase(direction: 1 | -1): void {
@@ -898,6 +999,13 @@ function isCricketClashMessage(message: string): boolean {
   return (
     message.includes('Already registered for') ||
     message.includes('માટે પહેલેથી નોંધાયેલ')
+  )
+}
+
+function isRegisteredConflict(message: string): boolean {
+  return (
+    message.includes('Already registered') ||
+    message.includes('પહેલેથી નોંધાયેલ')
   )
 }
 
@@ -1016,8 +1124,10 @@ function goNext(): void {
       render()
       return
     }
-    showDisclaimer = true
-    render()
+    withPageLoader(() => {
+      showDisclaimer = true
+      render()
+    })
     return
   }
 
@@ -1027,7 +1137,7 @@ function goNext(): void {
       render()
       return
     }
-    movePhase(1)
+    advancePhase()
     return
   }
 
@@ -1037,7 +1147,7 @@ function goNext(): void {
       render()
       return
     }
-    movePhase(1)
+    advancePhase()
     return
   }
 
@@ -1047,7 +1157,7 @@ function goNext(): void {
       render()
       return
     }
-    movePhase(1)
+    advancePhase()
     return
   }
 
@@ -1057,7 +1167,7 @@ function goNext(): void {
       render()
       return
     }
-    movePhase(1)
+    advancePhase()
     return
   }
 
@@ -1079,7 +1189,7 @@ function goNext(): void {
         state.formats[id] = 'single'
       }
     }
-    movePhase(1)
+    advancePhase()
     return
   }
 
@@ -1089,19 +1199,17 @@ function goNext(): void {
       render()
       return
     }
-    movePhase(1)
+    advancePhase()
     return
   }
 
   if (phase.id === 'review') {
-    if (pickIndoor) {
-      const check = canSubmit()
-      if (!check.ok) {
-        redirectToSubmitError(check.message)
-        return
-      }
+    const check = reviewGate()
+    if (!check.ok) {
+      redirectToSubmitError(check.message)
+      return
     }
-    movePhase(1)
+    advancePhase()
   }
 }
 
@@ -1119,6 +1227,152 @@ function gotoIndoor(indoorStep: 1 | 2 | 3 | 4): void {
   if (index >= 0) phaseIndex = index
 }
 
+function gotoPhaseId(id: FlowPhase['id']): void {
+  const list = phases()
+  const index = list.findIndex((phase) => phase.id === id)
+  if (index >= 0) phaseIndex = index
+}
+
+function stayOnCurrentPhaseOr(fallback: () => void): void {
+  const key = paintedKey || phaseKey(currentPhase())
+  const list = phases()
+  const index = list.findIndex((phase) => phaseKey(phase) === key)
+  if (index >= 0) {
+    phaseIndex = index
+    return
+  }
+  fallback()
+}
+
+function gotoFixSport(sportId: SportId): void {
+  foldState.set(`format:${sportId}`, true)
+  stepAnimDir = 'back'
+  gotoIndoor(3)
+  const sport = buildSelectedSports().find((item) => item.sportId === sportId)
+  const conflict = sport
+    ? describeSportConflict(sport, sportLabel(sportId), state.mobile)
+    : null
+  if (conflict && sport) {
+    const player1Clash = sport.player1Mobile
+      ? describePlayerMobileConflict(sport.player1Mobile, sportId, sportLabel(sportId))
+      : null
+    const player2Clash =
+      sport.format === 'double' && sport.player2Mobile
+        ? describePlayerMobileConflict(sport.player2Mobile, sportId, sportLabel(sportId))
+        : null
+    doublesErrors[sportId] = {
+      ...doublesErrors[sportId],
+      ...(player1Clash || !player2Clash
+        ? {
+            player1: {
+              ...doublesErrors[sportId]?.player1,
+              mobile: player1Clash || conflict,
+            },
+          }
+        : {}),
+      ...(player2Clash
+        ? {
+            player2: {
+              ...doublesErrors[sportId]?.player2,
+              mobile: player2Clash,
+            },
+          }
+        : {}),
+    }
+    formatError = conflict
+  }
+  submitError = ''
+  shouldRevealErrors = true
+  render()
+}
+
+function gotoFixCricket(): void {
+  foldState.set('cricket:name', true)
+  stepAnimDir = 'back'
+  gotoPhaseId('cricket-form')
+  syncCricketMobileClash()
+  submitError = ''
+  shouldRevealErrors = true
+  render()
+}
+
+function removeIndoorSport(id: SportId): void {
+  if (state.primarySport === id) state.primarySport = null
+  state.secondarySports = state.secondarySports.filter((sport) => sport !== id)
+  delete state.formats[id]
+  delete state.doublesPlayers[id]
+  delete doublesErrors[id]
+  formatError = ''
+  submitError = ''
+  sportError = ''
+
+  const leftover = selectedSportsList()
+  if (leftover.length === 0) {
+    if (pickTurf || pickOverarm) {
+      pickIndoor = false
+      stayOnCurrentPhaseOr(gotoReview)
+    } else {
+      pickIndoor = true
+      sportError = biText(
+        'Select at least one sport (main or extra)',
+        GU.errMinOneSport,
+      )
+      gotoIndoor(2)
+      shouldRevealErrors = true
+    }
+  } else {
+    stayOnCurrentPhaseOr(() => {
+      if (sportsNeedingPlayerDetails().length > 0) gotoIndoor(3)
+      else gotoReview()
+    })
+  }
+  render()
+}
+
+function removeCricketKind(kind: CricketKind): void {
+  if (kind === 'turf') pickTurf = false
+  else pickOverarm = false
+  if (!pickTurf && !pickOverarm) pickCricket = false
+  submitError = ''
+  if (isCricketClashMessage(cricketErrors.mobile ?? '')) {
+    delete cricketErrors.mobile
+  }
+  stayOnCurrentPhaseOr(() => {
+    if (pickTurf || pickOverarm) gotoPhaseId('cricket-form')
+    else if (pickIndoor) gotoReview()
+    else phaseIndex = 0
+  })
+  render()
+}
+
+function gotoFixFirstConflict(): boolean {
+  const sports = pickIndoor ? buildSelectedSports() : []
+  for (const sport of sports) {
+    if (sport.sportId === 'turf' || sport.sportId === 'overarm') continue
+    const conflict = describeSportConflict(
+      sport,
+      sportLabel(sport.sportId),
+      state.mobile,
+    )
+    if (!conflict) continue
+    if (sportsNeedingPlayerDetails().includes(sport.sportId)) {
+      gotoFixSport(sport.sportId)
+      return true
+    }
+    gotoReview()
+    submitError = conflict
+    shouldRevealErrors = true
+    render()
+    return true
+  }
+
+  if (cricketConflictLines().length > 0) {
+    gotoFixCricket()
+    return true
+  }
+  return false
+}
+
 function redirectToSubmitError(message: string): void {
   if (!state.gender) {
     stepAnimDir = 'back'
@@ -1129,38 +1383,7 @@ function redirectToSubmitError(message: string): void {
     render()
     return
   }
-
-  const sports = buildSelectedSports()
-  for (const s of sports) {
-    if (s.sportId === 'turf' || s.sportId === 'overarm') continue
-    const conflict = describeSportConflict(
-      s,
-      sportLabel(s.sportId),
-      state.mobile,
-    )
-    if (!conflict) continue
-
-    if (sportsNeedingPlayerDetails().includes(s.sportId)) {
-      stepAnimDir = 'back'
-      gotoIndoor(3)
-      doublesErrors[s.sportId] = {
-        ...doublesErrors[s.sportId],
-        player1: {
-          ...doublesErrors[s.sportId]?.player1,
-          mobile: conflict,
-        },
-      }
-      formatError = conflict
-      submitError = ''
-    } else {
-      gotoReview()
-      submitError = conflict
-    }
-    shouldRevealErrors = true
-    render()
-    return
-  }
-
+  if (gotoFixFirstConflict()) return
   submitError = message
   shouldRevealErrors = true
   render()
@@ -1175,7 +1398,7 @@ function goBack(): void {
   beginError = ''
   cricketChoiceError = ''
   cricketGenderError = ''
-  movePhase(-1)
+  withPageLoader(() => movePhase(-1))
 }
 
 function primarySportsForGender(): SportId[] {
@@ -1257,14 +1480,39 @@ function setFormat(id: SportId, format: PlayFormat): void {
   render()
 }
 
+function playerHasInput(player?: { fullName?: string; mobile?: string; age?: string }): boolean {
+  return Boolean(player?.fullName?.trim() || player?.mobile?.trim() || player?.age?.trim())
+}
+
+function formatSectionHasInput(id: SportId): boolean {
+  if (needsFormat(id) && state.formats[id]) return true
+  const players = state.doublesPlayers[id]
+  return playerHasInput(players?.player1) || playerHasInput(players?.player2)
+}
+
+function clearFormatSection(id: SportId): void {
+  state.doublesPlayers[id] = {
+    player1: emptyDoublesPlayer(),
+    player2: emptyDoublesPlayer(),
+  }
+  delete doublesErrors[id]
+  formatError = ''
+  submitError = ''
+  foldState.set(`format:${id}`, true)
+  render()
+}
+
+function formatClearButton(id: SportId): string {
+  const label = ui('Clear this section', GU.clearSection)
+  return `<button type="button" class="btn-icon-clear" data-action="clear-section" data-sport="${id}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">${iconClear()}</button>`
+}
+
 function validatePayment(): boolean {
   payError = ''
-  if (pickIndoor) {
-    const check = canSubmit()
-    if (!check.ok) {
-      payError = check.message
-      return false
-    }
+  const check = reviewGate()
+  if (!check.ok) {
+    payError = check.message
+    return false
   }
   if (payMode !== 'online' && payMode !== 'cash') {
     payError = biText(
@@ -1412,16 +1660,19 @@ function submit(): void {
       if (storedShot) paymentShot = storedShot
       const list = phases()
       const done = list.findIndex((phase) => phase.id === 'done')
-      phaseIndex = done >= 0 ? done : list.length - 1
-      stepAnimDir = 'forward'
+      submitBusy = false
+      autoDownloadReceipt = true
+      withPageLoader(() => {
+        phaseIndex = done >= 0 ? done : list.length - 1
+        stepAnimDir = 'forward'
+        render()
+      })
     })
     .catch((error: unknown) => {
       payError =
         error instanceof Error
           ? error.message
           : biText('Could not save this registration.', 'આ નોંધણી સાચવી શકાઈ નહીં.')
-    })
-    .finally(() => {
       submitBusy = false
       render()
     })
@@ -1467,6 +1718,8 @@ function clearFormFields(): void {
   paymentShotName = ''
   payError = ''
   receiptNo = ''
+  autoDownloadReceipt = false
+  receiptPdfBusy = false
   submitBusy = false
   frozenBill = null
   receiptCricketStatus = {}
@@ -1518,7 +1771,7 @@ function stepHasErrors(): boolean {
   }
   if (phase.id === 'pay') return Boolean(payError)
   if (phase.id === 'review' || (phase.id === 'indoor' && phase.indoorStep === 4)) {
-    return Boolean(submitError)
+    return Boolean(submitError) || !reviewGate().ok
   }
   return false
 }
@@ -1973,6 +2226,9 @@ function renderStep3(): string {
           const missingFormat = needsFormat(id) && !format && Boolean(formatError)
           const cardInvalid =
             Boolean(errors.player1 || errors.player2) || missingFormat
+          const alreadyTaken =
+            isRegisteredConflict(errors.player1?.mobile ?? '') ||
+            isRegisteredConflict(errors.player2?.mobile ?? '')
           const status = singlesOnlySport(id)
             ? bi('Singles only', 'ફક્ત સિંગલ્સ')
             : playerOnly
@@ -1983,6 +2239,7 @@ function renderStep3(): string {
                   ? bi('Single', GU.single)
                   : bi('Choose format', 'ફોર્મેટ પસંદ કરો')
           const body = `
+            <div class="section-clear">${formatClearButton(id)}</div>
             ${slotBadgeHtml(id)}
             ${
               organizerAssignsPartner(id)
@@ -2026,7 +2283,8 @@ function renderStep3(): string {
                     showOrganizerNotice: isSingle && !playerOnly && organizerAssignsPartner(id),
                   })
                 : ''
-            }`
+            }
+            ${alreadyTaken ? indoorConflictActions(id, false) : ''}`
           return foldPanel(
             `format:${id}`,
             `<span class="sport-heading">${sportIcon(id)} ${sportBi(id)}</span><span class="fold-status">${status}</span>`,
@@ -2048,25 +2306,36 @@ function renderStep3(): string {
 
 function renderStep4(): string {
   const sports = pickIndoor ? buildSelectedSports() : []
-  const check = pickIndoor ? canSubmit() : { ok: true, message: '' }
+  const check = reviewGate()
   const hasWaiting = anySeatWaiting()
+  const blocked = Boolean(submitError || !check.ok)
   return `
     <div class="fade-step review-step">
       <h2 class="step-title">${bi('Review & submit', GU.reviewTitle)}</h2>
       <p class="step-sub">${bi('Confirm every sport you selected. Full sports go on the waiting list.', GU.reviewSub)}</p>
       ${hasWaiting ? `<div class="alert" style="background:#fff8e6;border-color:rgba(212,160,23,0.35);color:#8a6a00">${bi('Some sports are full — you will be added to the waiting list for those.', GU.waitingAlert)}</div>` : ''}
-      ${submitError || !check.ok ? `<div class="alert is-error">${bilingualHtml(submitError || check.message)}</div>` : ''}
+      ${
+        blocked
+          ? `<div class="alert is-error">
+              ${bilingualHtml(submitError || check.message)}
+              <p class="alert-hint">${bi('Change the player details or remove that sport below — you do not need to fill the whole form again.', GU.alreadyHint)}</p>
+              ${reviewConflictActions()}
+            </div>`
+          : ''
+      }
 
       <div class="entry-list">
-        ${sports.map((sport, index) => indoorEntryCard(sport, true, { key: `review:${sport.sportId}`, open: index === 0 })).join('')}
-        ${cricketReviewCard({ key: 'review:cricket', open: sports.length === 0 })}
+        ${sports.map((sport, index) => indoorEntryCard(sport, true, { key: `review:${sport.sportId}`, open: index === 0 || Boolean(describeSportConflict(sport, sportLabel(sport.sportId), state.mobile)) })).join('')}
+        ${cricketReviewCard({ key: 'review:cricket', open: sports.length === 0 || cricketConflictLines().length > 0 })}
       </div>
 
       <div class="actions">
         <button type="button" class="btn btn-ghost" data-action="back">${withIcon(iconArrowLeft(), bi('Back', GU.back))}</button>
-        <button type="button" class="btn btn-gold" data-action="next" ${!check.ok ? 'disabled' : ''}>
-          ${withIcon(iconArrowRight(), bi('Continue to pay', 'ચુકવણી તરફ'))}
-        </button>
+        ${
+          blocked
+            ? `<button type="button" class="btn btn-gold" data-action="fix-conflict">${withIcon(iconArrowRight(), bi('Change player details', GU.changePlayerDetails))}</button>`
+            : `<button type="button" class="btn btn-gold" data-action="next">${withIcon(iconArrowRight(), bi('Continue to pay', 'ચુકવણી તરફ'))}</button>`
+        }
       </div>
     </div>
   `
@@ -2220,8 +2489,7 @@ function disclaimerHtml(): string {
               </svg>
             </div>
             <p class="disclaimer-sponsor">
-              <span>${bi('Main sponsor · Event partner', 'મુખ્ય પ્રાયોજક · ઇવેન્ટ પાર્ટનર')}</span>
-              <strong>${bi('Jarin Bhai', 'જરીન ભાઈ')}</strong>
+              ${sponsorBlockHtml('Event partner', 'ઇવેન્ટ પાર્ટનર')}
             </p>
             <button type="button" class="disclaimer-close" data-action="close-disclaimer" aria-label="Close">${bi('Close', 'બંધ કરો')}</button>
           </div>
@@ -2237,8 +2505,8 @@ function disclaimerHtml(): string {
               'શ્રી ચાણસ્મા જૈન યુવા ગ્રુપ આપનું ચાણસ્મા ઓલિમ્પિકમાં હાર્દિક સ્વાગત કરે છે.',
             )}</li>
             <li>${bi(
-              'Heartfelt thanks to our main event partner and main sponsor, Jarin Bhai.',
-              'અમારા મુખ્ય ઇવેન્ટ પાર્ટનર અને મુખ્ય પ્રાયોજક જરીન ભાઈનો ખૂબ ખૂબ આભાર.',
+              `Heartfelt thanks to our main event partner and main sponsor, ${MAIN_SPONSOR} (${MAIN_SPONSOR_LINE}).`,
+              `અમારા મુખ્ય ઇવેન્ટ પાર્ટનર અને મુખ્ય પ્રાયોજક ${MAIN_SPONSOR} (${MAIN_SPONSOR_LINE})નો ખૂબ ખૂબ આભાર.`,
             )}</li>
             <li>${bi(
               'These sports are to be played together, and to bring everyone closer.',
@@ -2324,6 +2592,7 @@ function disclaimerHtml(): string {
           </div>
         </div>
         <footer class="disclaimer-foot">
+          <p class="disclaimer-foot-sponsor">${sponsorBlockHtml()}</p>
           <button type="button" class="btn btn-gold" data-action="begin-form">${bi("Let's Begin", 'ચાલો શરૂ કરીએ')}</button>
         </footer>
       </div>
@@ -2671,6 +2940,32 @@ function playerLine(
   return `<p class="entry-line"><span>${bi(labelEn, labelGu)}</span><strong>${escapeHtml(bits.join(' · '))}</strong></p>`
 }
 
+function indoorConflictActions(sportId: SportId, showChange: boolean): string {
+  return `
+    <div class="conflict-actions">
+      ${
+        showChange
+          ? `<button type="button" class="btn btn-primary btn-compact" data-action="fix-sport" data-sport="${escapeAttr(sportId)}">${bi('Change player details', GU.changePlayerDetails)}</button>`
+          : ''
+      }
+      <button type="button" class="btn btn-ghost btn-compact" data-action="remove-sport" data-sport="${escapeAttr(sportId)}">${bi('Remove this sport', GU.removeThisSport)}</button>
+    </div>`
+}
+
+function cricketConflictActions(kinds: CricketKind[]): string {
+  return `
+    <div class="conflict-actions">
+      <button type="button" class="btn btn-primary btn-compact" data-action="fix-cricket">${bi('Change cricket details', GU.changeCricketDetails)}</button>
+      ${kinds
+        .map((kind) =>
+          kind === 'turf'
+            ? `<button type="button" class="btn btn-ghost btn-compact" data-action="remove-cricket" data-kind="turf">${bi('Remove Turf', GU.removeTurf)}</button>`
+            : `<button type="button" class="btn btn-ghost btn-compact" data-action="remove-cricket" data-kind="overarm">${bi('Remove Overarm', GU.removeOverarm)}</button>`,
+        )
+        .join('')}
+    </div>`
+}
+
 function indoorEntryCard(
   sport: SelectedSport,
   showSlots = false,
@@ -2696,7 +2991,9 @@ function indoorEntryCard(
           sport.player1Mobile || normalizeMobile(state.mobile),
           sport.player1Age,
         )
-  const note = existing ? `<p class="existing-detail">${bilingualHtml(existing)}</p>` : ''
+  const note = existing
+    ? `<p class="existing-detail">${bilingualHtml(existing)}</p>${fold ? indoorConflictActions(sport.sportId, true) : ''}`
+    : ''
   const slots = showSlots && state.gender ? slotBadgeFor(sport.sportId, state.gender) : ''
   const summary = `
     <span class="entry-icon">${sportIcon(sport.sportId)}</span>
@@ -2743,6 +3040,7 @@ function cricketSkillLine(which: CricketKind): string {
 
 function cricketReviewCard(fold?: { key: string; open: boolean }): string {
   if (!pickTurf && !pickOverarm) return ''
+  const clashes = cricketConflictLines()
   const player = cricketEntry
   const both = pickTurf && pickOverarm
   const heading = both ? 'Cricket' : pickTurf ? 'Turf cricket' : 'Overarm cricket'
@@ -2772,18 +3070,23 @@ function cricketReviewCard(fold?: { key: string; open: boolean }): string {
       <h4>${bi(heading, headingGu)}</h4>
       <p>${who}</p>
     </span>`
+  const clashNote = clashes
+    .map((item) => `<p class="existing-detail">${bilingualHtml(item.message)}</p>`)
+    .join('')
   const body = `
     <p class="entry-line"><span>${bi('Player', 'ખેલાડી')}</span><strong>${escapeHtml(name || '—')}</strong></p>
     ${details ? `<p class="entry-line"><span>${bi('Details', 'વિગત')}</span><strong>${escapeHtml(details)}</strong></p>` : ''}
     ${pickTurf ? cricketSkillLine('turf') : ''}
-    ${pickOverarm ? cricketSkillLine('overarm') : ''}`
+    ${pickOverarm ? cricketSkillLine('overarm') : ''}
+    ${clashNote}
+    ${fold && clashes.length ? cricketConflictActions(clashes.map((item) => item.kind)) : ''}`
   if (fold) {
     return foldPanel(
       fold.key,
       summary,
       body,
-      foldOpen(fold.key, fold.open),
-      'entry-fold',
+      foldOpen(fold.key, fold.open, clashes.length > 0),
+      `entry-fold ${clashes.length ? 'is-invalid' : ''}`,
     )
   }
   return `
@@ -2989,7 +3292,7 @@ function renderDone(): string {
               <circle cx="136" cy="18" r="12" stroke="#df0024" />
             </g>
           </svg>
-          <p class="receipt-sponsor-pill"><span>Main sponsor</span><strong>Jarin Bhai</strong></p>
+          <p class="receipt-sponsor-pill">${sponsorBlockHtml()}</p>
         </header>
         <h2>${bi('Payment receipt', 'ચુકવણીની રસીદ')}</h2>
         <p class="receipt-no">${escapeHtml(receiptNo)}</p>
@@ -3005,9 +3308,9 @@ function renderDone(): string {
           }
         </div>
       </article>
-      <div class="actions">
-        <button type="button" class="btn btn-ghost" data-action="download-receipt">${bi('Download PDF', 'PDF ડાઉનલોડ')}</button>
-        <button type="button" class="btn btn-ghost" data-action="print">${bi('Print receipt', 'રસીદ છાપો')}</button>
+      <div class="actions receipt-actions">
+        <button type="button" class="btn btn-ghost" data-action="download-receipt">${withIcon(iconDownload(), bi('Download PDF', 'PDF ડાઉનલોડ'))}</button>
+        <button type="button" class="btn btn-ghost" data-action="share-receipt">${withIcon(iconShare(), bi('Share PDF', 'PDF શેર કરો'))}</button>
         <button type="button" class="btn btn-primary" data-action="reset">
           ${withIcon(iconSpark(), bi('Start again', 'ફરી શરૂ કરો'))}
         </button>
@@ -3142,25 +3445,7 @@ function addCanvasPages(
   }
 }
 
-async function savePdfFile(blob: Blob, filename: string): Promise<void> {
-  const file = new File([blob], filename, { type: 'application/pdf' })
-  if (
-    isMobileDevice() &&
-    typeof navigator.share === 'function' &&
-    typeof navigator.canShare === 'function' &&
-    navigator.canShare({ files: [file] })
-  ) {
-    try {
-      await navigator.share({
-        files: [file],
-        title: 'CHANASMA Olympic receipt',
-      })
-      return
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return
-    }
-  }
-
+function downloadPdfBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -3172,92 +3457,91 @@ async function savePdfFile(blob: Blob, filename: string): Promise<void> {
   window.setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
-function showReceiptOffer(blob: Blob, filename: string): void {
-  document.querySelector('.receipt-offer')?.remove()
-  const file = new File([blob], filename, { type: 'application/pdf' })
-  const url = URL.createObjectURL(blob)
-  const wrap = document.createElement('div')
-  wrap.className = 'receipt-offer'
-  wrap.innerHTML = `
-    <div class="receipt-offer-card" role="dialog" aria-modal="true">
-      <h3>${bi('Save receipt', 'રસીદ સાચવો')}</h3>
-      <p>${bi('Tap Save, then choose Files, Drive, or WhatsApp.', 'Save દબાવો, પછી Files, Drive અથવા WhatsApp પસંદ કરો.')}</p>
-      <div class="receipt-offer-actions">
-        <button type="button" class="btn btn-gold" data-offer="save">${bi('Save PDF', 'PDF સાચવો')}</button>
-        <button type="button" class="btn btn-ghost" data-offer="close">${bi('Close', 'બંધ કરો')}</button>
-      </div>
-    </div>`
-  const close = () => {
-    wrap.remove()
-    URL.revokeObjectURL(url)
+async function makeReceiptPdf(): Promise<{ blob: Blob; filename: string } | null> {
+  const sheet = document.getElementById('receipt-sheet')
+  if (!sheet) return null
+  const { jsPDF } = await import('jspdf')
+  const canvas = await captureReceiptCanvas(sheet)
+  const pdf = new jsPDF({ unit: 'pt', format: 'a4', compress: true })
+  addCanvasPages(pdf, canvas)
+  return {
+    blob: pdf.output('blob'),
+    filename: `${receiptNo || 'chansma-receipt'}.pdf`,
   }
-  wrap.querySelector<HTMLButtonElement>('[data-offer="close"]')?.addEventListener('click', close)
-  wrap.querySelector<HTMLButtonElement>('[data-offer="save"]')?.addEventListener('click', () => {
-    void (async () => {
-      if (
-        typeof navigator.share === 'function' &&
-        typeof navigator.canShare === 'function' &&
-        navigator.canShare({ files: [file] })
-      ) {
-        try {
-          await navigator.share({ files: [file], title: 'CHANASMA Olympic receipt' })
-          return
-        } catch (error) {
-          if (error instanceof DOMException && error.name === 'AbortError') return
-        }
-      }
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-    })()
-  })
-  document.body.appendChild(wrap)
 }
 
-async function downloadReceipt(): Promise<void> {
-  const button = document.querySelector<HTMLButtonElement>(
-    '[data-action="download-receipt"]',
-  )
-  const sheet = document.getElementById('receipt-sheet')
-  const label = button?.innerHTML || ''
-  if (!sheet) return
-  if (button) {
-    button.disabled = true
-    button.textContent = 'Preparing…'
+function receiptBusyButtons(busy: boolean, message?: string): void {
+  for (const action of ['download-receipt', 'share-receipt'] as const) {
+    const button = document.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)
+    if (!button) continue
+    if (busy) {
+      if (!button.dataset.labelHtml) button.dataset.labelHtml = button.innerHTML
+      button.disabled = true
+      if (message) button.textContent = message
+    } else {
+      button.disabled = false
+      if (button.dataset.labelHtml) {
+        button.innerHTML = button.dataset.labelHtml
+        delete button.dataset.labelHtml
+      }
+    }
   }
+}
+
+async function withReceiptPdf(
+  next: (pdf: { blob: Blob; filename: string }) => Promise<void> | void,
+): Promise<void> {
+  if (receiptPdfBusy) return
+  receiptPdfBusy = true
+  receiptBusyButtons(true, biText('Preparing…', 'તૈયાર થઈ રહ્યું છે…'))
   const preparing = document.createElement('div')
   preparing.className = 'receipt-offer'
   preparing.innerHTML = `<div class="receipt-offer-card"><p>${bi('Preparing your receipt…', 'રસીદ તૈયાર થઈ રહી છે…')}</p></div>`
   document.body.appendChild(preparing)
   try {
-    const { jsPDF } = await import('jspdf')
-    const canvas = await captureReceiptCanvas(sheet)
-    const pdf = new jsPDF({ unit: 'pt', format: 'a4', compress: true })
-    addCanvasPages(pdf, canvas)
-    const filename = `${receiptNo || 'chansma-receipt'}.pdf`
-    const blob = pdf.output('blob')
+    const pdf = await makeReceiptPdf()
     preparing.remove()
-    if (isMobileDevice()) {
-      showReceiptOffer(blob, filename)
-    } else {
-      await savePdfFile(blob, filename)
-    }
+    if (!pdf) throw new Error('Receipt is not ready')
+    await next(pdf)
   } catch (error) {
     console.error(error)
     preparing.remove()
-    if (button) {
-      button.disabled = false
-      button.textContent = 'Download failed. Try again.'
-      return
+    receiptBusyButtons(true, biText('Try again', 'ફરી પ્રયાસ કરો'))
+    window.setTimeout(() => receiptBusyButtons(false), 1600)
+    receiptPdfBusy = false
+    return
+  }
+  receiptBusyButtons(false)
+  receiptPdfBusy = false
+}
+
+async function downloadReceipt(): Promise<void> {
+  await withReceiptPdf(({ blob, filename }) => {
+    downloadPdfBlob(blob, filename)
+  })
+}
+
+async function shareReceipt(): Promise<void> {
+  await withReceiptPdf(async ({ blob, filename }) => {
+    const file = new File([blob], filename, { type: 'application/pdf' })
+    if (
+      typeof navigator.share === 'function' &&
+      typeof navigator.canShare === 'function' &&
+      navigator.canShare({ files: [file] })
+    ) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: 'CHANASMA Olympic receipt',
+          text: `CHANASMA Olympic receipt ${receiptNo}`,
+        })
+        return
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+      }
     }
-  }
-  if (button) {
-    button.disabled = false
-    button.innerHTML = label
-  }
+    downloadPdfBlob(blob, filename)
+  })
 }
 
 function escapeHtml(value: string): string {
@@ -3360,7 +3644,7 @@ function render(): void {
           </div>
           <a class="masthead-admin" href="#/admin" aria-label="Admin">${iconAdmin()}</a>
         </div>
-        <p class="masthead-sponsor"><span>${bi('Main sponsor', 'મુખ્ય પ્રાયોજક')}</span><strong>${bi('Jarin Bhai', 'જરીન ભાઈ')}</strong></p>
+        <p class="masthead-sponsor">${sponsorBlockHtml()}</p>
         ${langTabsHtml()}
       </header>
 
@@ -3370,6 +3654,13 @@ function render(): void {
           ${body}
         </div>
       </main>
+      <footer class="site-foot">
+        <p class="site-foot-sponsor">${sponsorBlockHtml()}</p>
+        <p class="site-foot-meta">${bi(
+          'Shree Chanasma Jain Yuva Group · 9–10 Jan 2027',
+          'શ્રી ચાણસ્મા જૈન યુવા ગ્રુપ · ૯–૧૦ જાન્યુઆરી ૨૦૨૭',
+        )}</p>
+      </footer>
     </div>
   `
   }
@@ -3391,6 +3682,13 @@ function render(): void {
     shouldRevealErrors = false
     // Skip preserving scroll when we need to jump to the error
     revealFormErrors()
+  }
+
+  if (phase.id === 'done' && autoDownloadReceipt) {
+    autoDownloadReceipt = false
+    window.setTimeout(() => {
+      void downloadReceipt()
+    }, 350)
   }
 }
 
@@ -3462,6 +3760,24 @@ function checkAllPlayerMobileConflictsOnPage(): void {
   }
 }
 
+async function applyPaymentShot(file: File): Promise<void> {
+  payError = biText('Preparing screenshot…', 'સ્ક્રીનશૉટ તૈયાર થઈ રહ્યો છે…')
+  paymentShotName = file.name
+  render()
+  try {
+    const optimized = await optimizePhoto(file)
+    paymentShot = optimized.dataUrl
+    payError = ''
+  } catch (error) {
+    paymentShot = ''
+    payError =
+      error instanceof Error
+        ? error.message
+        : biText('Could not use this screenshot.', 'આ સ્ક્રીનશૉટ વાપરી શકાયો નહીં.')
+  }
+  render()
+}
+
 async function applyPhoto(file: File): Promise<void> {
   photoBusy = true
   delete cricketErrors.photo
@@ -3499,24 +3815,7 @@ function bindEvents(): void {
     input.addEventListener('change', () => {
       const file = input.files?.[0]
       if (!file) return
-      if (!file.type.startsWith('image/')) {
-        payError = biText('Upload a photo of the payment.', 'ચુકવણીનો ફોટો અપલોડ કરો.')
-        render()
-        return
-      }
-      if (file.size > 8 * 1024 * 1024) {
-        payError = biText('Screenshot must be under 8 MB.', 'સ્ક્રીનશૉટ 8 MBથી નાનો હોવો જોઈએ.')
-        render()
-        return
-      }
-      const reader = new FileReader()
-      reader.onload = () => {
-        paymentShot = String(reader.result || '')
-        paymentShotName = file.name
-        payError = ''
-        render()
-      }
-      reader.readAsDataURL(file)
+      void applyPaymentShot(file)
     })
   })
 
@@ -3666,10 +3965,12 @@ function bindEvents(): void {
     btn.addEventListener('pointerdown', (event) => {
       suppressBlurRenderUntil = Date.now() + 400
       event.preventDefault()
+      if (btn.dataset.action === 'clear-section') event.stopPropagation()
     })
 
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (event) => {
       const action = btn.dataset.action
+      if (action === 'clear-section') event.stopPropagation()
       if (action === 'toggle-indoor') {
         if (!indoorOpen()) return
         pickIndoor = !pickIndoor
@@ -3718,7 +4019,9 @@ function bindEvents(): void {
           }, 1400)
         })
       } else if (action === 'download-receipt') {
-        downloadReceipt()
+        void downloadReceipt()
+      } else if (action === 'share-receipt') {
+        void shareReceipt()
       } else if (action === 'print') {
         window.print()
       } else if (
@@ -3734,11 +4037,11 @@ function bindEvents(): void {
         render()
       } else if (action === 'begin-form') {
         showDisclaimer = false
-        movePhase(1)
+        advancePhase()
       } else if (action === 'next') goNext()
       else if (action === 'back') goBack()
       else if (action === 'submit' && !submitBusy) submit()
-      else if (action === 'reset') resetForm()
+      else if (action === 'reset') withPageLoader(() => resetForm())
       else if (action === 'copy-ref' && lastReference) {
         void navigator.clipboard.writeText(lastReference).then(() => {
           btn.textContent = 'Copied!'
@@ -3761,6 +4064,21 @@ function bindEvents(): void {
           btn.dataset.sport as SportId,
           btn.dataset.format as PlayFormat,
         )
+      } else if (action === 'fix-conflict') {
+        gotoFixFirstConflict()
+      } else if (action === 'fix-sport' && btn.dataset.sport) {
+        gotoFixSport(btn.dataset.sport as SportId)
+      } else if (action === 'remove-sport' && btn.dataset.sport) {
+        removeIndoorSport(btn.dataset.sport as SportId)
+      } else if (action === 'clear-section' && btn.dataset.sport) {
+        clearFormatSection(btn.dataset.sport as SportId)
+      } else if (action === 'fix-cricket') {
+        gotoFixCricket()
+      } else if (
+        action === 'remove-cricket' &&
+        (btn.dataset.kind === 'turf' || btn.dataset.kind === 'overarm')
+      ) {
+        removeCricketKind(btn.dataset.kind)
       }
     })
   })

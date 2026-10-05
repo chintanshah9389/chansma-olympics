@@ -22,6 +22,14 @@ const pool = new Pool({
     process.env.DATABASE_SSL === 'true'
       ? { rejectUnauthorized: false }
       : undefined,
+  max: 5,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 15_000,
+  keepAlive: true,
+})
+
+pool.on('error', (error) => {
+  console.error('Postgres idle client error:', error.code || error.message)
 })
 
 const DEFAULT_CAPACITIES = {
@@ -592,6 +600,9 @@ app.use(
 app.use(express.json({ limit: '20mb' }))
 
 const server = http.createServer(app)
+server.headersTimeout = 180_000
+server.requestTimeout = 180_000
+server.timeout = 180_000
 const wss = new WebSocketServer({ server, path: '/ws' })
 
 function broadcast(type) {
@@ -1066,11 +1077,38 @@ async function registrationError(reg, excludeId = null) {
   )
 }
 
+async function connectDb(attempts = 3) {
+  let lastError
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await pool.connect()
+    } catch (error) {
+      lastError = error
+      console.error('Postgres connect failed:', error.code || error.message)
+      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)))
+    }
+  }
+  throw lastError
+}
+
 async function insertRegistration(client, reg) {
   await client.query(
     `INSERT INTO registrations
       (id, event, full_name, mobile, location, gender, sports, created_at, receipt_no, pay_mode, paid_to, amount, payment_shot_url)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9, $10, $11, $12, $13)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9, $10, $11, $12, $13)
+     ON CONFLICT (id) DO UPDATE SET
+      event = EXCLUDED.event,
+      full_name = EXCLUDED.full_name,
+      mobile = EXCLUDED.mobile,
+      location = EXCLUDED.location,
+      gender = EXCLUDED.gender,
+      sports = EXCLUDED.sports,
+      created_at = EXCLUDED.created_at,
+      receipt_no = EXCLUDED.receipt_no,
+      pay_mode = EXCLUDED.pay_mode,
+      paid_to = EXCLUDED.paid_to,
+      amount = EXCLUDED.amount,
+      payment_shot_url = EXCLUDED.payment_shot_url`,
     [
       reg.id,
       reg.event,
@@ -1125,7 +1163,7 @@ app.post('/api/registrations/checkout', async (req, res) => {
         return
       }
     }
-    const client = await pool.connect()
+    const client = await connectDb()
     try {
       await client.query('BEGIN')
       for (const reg of prepared) await insertRegistration(client, reg)
@@ -1167,7 +1205,7 @@ app.post('/api/registrations', async (req, res) => {
       res.status(error.startsWith('Already registered') ? 409 : 400).json({ error })
       return
     }
-    const client = await pool.connect()
+    const client = await connectDb()
     try {
       await insertRegistration(client, reg)
     } finally {
