@@ -42,7 +42,7 @@ import {
   type CricketPlayer,
   type PlayerSkill,
 } from './cricketForm'
-import { getSportAgeLimit } from './ageLimits'
+import { DEFAULT_SPORT_AGE_LIMIT, getSportAgeLimit } from './ageLimits'
 import { isSportEnabled, sportAvailabilityRevision } from './sportAvailability'
 import {
   ALL_SPORT_IDS,
@@ -65,6 +65,7 @@ import { destroyAdmin, isAdminRoute, renderAdmin } from './admin'
 import { GU, bi, biText, bilingualHtml } from './i18n'
 import {
   iconAdmin,
+  iconAge,
   iconArrowLeft,
   iconArrowRight,
   iconCamera,
@@ -220,6 +221,7 @@ function receiptSponsorHtml(): string {
 const state: FormState = {
   fullName: '',
   mobile: '',
+  age: '',
   location: '',
   gender: null,
   primarySport: null,
@@ -269,7 +271,7 @@ let receiptNo = ''
 let submitBusy = false
 let frozenBill: { label: string; amount: number }[] | null = null
 let receiptCricketStatus: Partial<Record<'turf' | 'overarm', 'confirmed' | 'waiting'>> = {}
-let detailErrors: Partial<Record<'fullName' | 'mobile', string>> = {}
+let detailErrors: Partial<Record<'fullName' | 'mobile' | 'age', string>> = {}
 let sportError = ''
 let formatError = ''
 let doublesErrors: Partial<
@@ -416,7 +418,7 @@ function bilingualMobileError(raw: string, required = true): string | null {
 
 function bilingualAgeError(
   raw: string,
-  sportId: SportId,
+  sportId?: SeatSportId,
   required = true,
 ): string | null {
   const en = ageFieldError(raw, { required, sportId })
@@ -424,7 +426,9 @@ function bilingualAgeError(
   if (en.includes('required')) {
     return biText(en, GU.errAgeRequired)
   }
-  const { minAge, maxAge } = getSportAgeLimit(sportId)
+  const { minAge, maxAge } = sportId
+    ? getSportAgeLimit(sportId)
+    : DEFAULT_SPORT_AGE_LIMIT
   return biText(en, GU.errAgeValid(minAge, maxAge))
 }
 
@@ -831,6 +835,10 @@ function validateDetails(): boolean {
   const mobileErr = bilingualMobileError(state.mobile, true)
   if (mobileErr) detailErrors.mobile = mobileErr
   else state.mobile = sanitizeMobileInput(state.mobile)
+
+  const ageErr = bilingualAgeError(state.age, undefined, true)
+  if (ageErr) detailErrors.age = ageErr
+  else state.age = String(state.age).replace(/\D/g, '').slice(0, 3)
 
   return Object.keys(detailErrors).length === 0
 }
@@ -2105,6 +2113,7 @@ function clearFormFields(): void {
   foldState.clear()
   state.fullName = ''
   state.mobile = ''
+  state.age = ''
   state.location = ''
   state.gender = null
   state.primarySport = null
@@ -2188,7 +2197,7 @@ function stepHasErrors(): boolean {
     return Object.keys(cricketErrors).length > 0 || Object.keys(skillErrors).length > 0
   }
   if (phase.id === 'indoor' && phase.indoorStep === 1) {
-    return Boolean(detailErrors.fullName || detailErrors.mobile)
+    return Boolean(detailErrors.fullName || detailErrors.mobile || detailErrors.age)
   }
   if (phase.id === 'indoor' && phase.indoorStep === 2) return Boolean(sportError)
   if (phase.id === 'indoor' && phase.indoorStep === 3) {
@@ -2355,7 +2364,7 @@ function renderStep1(): string {
   return `
     <div class="fade-step">
       <h2 class="step-title"><span class="step-title-icon">${iconUser()}</span> ${bi('Enter your details', GU.detailsTitle)}</h2>
-      <p class="step-sub">${bi('Enter your full name and a 10-digit mobile number (no +91 or leading 0).', GU.detailsSub)}</p>
+      <p class="step-sub">${bi('Enter your full name, a 10-digit mobile number (no +91 or leading 0), and your age.', GU.detailsSub)}</p>
       ${apiError ? `<div class="alert is-error">${bilingualHtml(apiError)}</div>` : ''}
 
       <div class="field field-icon ${detailErrors.fullName ? 'is-invalid' : ''}">
@@ -2379,6 +2388,18 @@ function renderStep1(): string {
             maxlength="12" pattern="[1-9][0-9]{9}" />
         </div>
         ${detailErrors.mobile ? `<span class="error">${bilingualHtml(detailErrors.mobile)}</span>` : ''}
+      </div>
+
+      <div class="field field-icon ${detailErrors.age ? 'is-invalid' : ''}">
+        <label for="age">${bi('Age', GU.age)}</label>
+        <div class="input-wrap">
+          ${iconAge()}
+          <input id="age" name="age" type="text" inputmode="numeric" autocomplete="off"
+            class="${detailErrors.age ? 'is-invalid' : ''}"
+            value="${escapeAttr(state.age)}" placeholder="${escapeAttr(ui(`${DEFAULT_SPORT_AGE_LIMIT.minAge}–${DEFAULT_SPORT_AGE_LIMIT.maxAge}`, GU.placeholderAge))}"
+            maxlength="3" />
+        </div>
+        ${detailErrors.age ? `<span class="error">${bilingualHtml(detailErrors.age)}</span>` : ''}
       </div>
 
     </div>
@@ -4491,12 +4512,16 @@ function bindEvents(): void {
         return
       }
 
-      const key = input.name as 'fullName' | 'mobile'
-      if (key === 'fullName' || key === 'mobile') {
+      const key = input.name as 'fullName' | 'mobile' | 'age'
+      if (key === 'fullName' || key === 'mobile' || key === 'age') {
         if (key === 'mobile') {
           const next = sanitizeMobileInput(input.value)
           if (input.value !== next) input.value = next
           state.mobile = next
+        } else if (key === 'age') {
+          const next = input.value.replace(/\D/g, '').slice(0, 3)
+          if (input.value !== next) input.value = next
+          state.age = next
         } else {
           state.fullName = input.value
         }

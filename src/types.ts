@@ -75,6 +75,7 @@ export interface Registration {
 export interface FormState {
   fullName: string
   mobile: string
+  age: string
   location: string
   gender: Gender | null
   primarySport: SportId | null
