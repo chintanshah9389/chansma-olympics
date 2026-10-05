@@ -6,7 +6,7 @@ export type SportId =
   | 'tt'
   | 'badminton'
 
-/** Indoor sports plus the two cricket events stored on a registration row. */
+/** Olympic games plus the two cricket events stored on a registration row. */
 export type SeatSportId = SportId | 'turf' | 'overarm'
 
 export type Gender = 'male' | 'female'
@@ -102,6 +102,7 @@ export interface ScreenshotVerificationResult {
 export interface FormState {
   fullName: string
   mobile: string
+  age: string
   location: string
   gender: Gender | null
   primarySport: SportId | null

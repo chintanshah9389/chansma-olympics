@@ -13,6 +13,11 @@ export const iconPhone = (): string =>
     `<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.5-1.1a2 2 0 0 1 2.1-.4c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2z"/>`,
   )
 
+export const iconAge = (): string =>
+  svg(
+    `<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 1.8"/>`,
+  )
+
 export const iconPin = (): string =>
   svg(
     `<path d="M12 22s7-5.2 7-12a7 7 0 1 0-14 0c0 6.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>`,
@@ -61,15 +66,33 @@ export const iconRefresh = (): string =>
     'icon icon-sm',
   )
 
+export const iconReset = (): string =>
+  svg(
+    `<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>`,
+    'icon icon-sm',
+  )
+
 export const iconDownload = (): string =>
   svg(
     `<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>`,
     'icon icon-sm',
   )
 
+export const iconShare = (): string =>
+  svg(
+    `<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/>`,
+    'icon icon-sm',
+  )
+
 export const iconTrash = (): string =>
   svg(
     `<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/>`,
+    'icon icon-sm',
+  )
+
+export const iconClear = (): string =>
+  svg(
+    `<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/>`,
     'icon icon-sm',
   )
 

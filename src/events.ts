@@ -38,8 +38,8 @@ export const EVENTS: TournamentEvent[] = [
   },
   {
     id: 'indoor',
-    title: 'Indoor sports',
-    titleGu: 'ઇન્ડોર સ્પોર્ટ્સ',
+    title: 'Olympic games',
+    titleGu: 'ઓલિમ્પિક રમતો',
     date: '9 January 2027',
     dateGu: '૯ જાન્યુઆરી ૨૦૨૭',
     day: '09',

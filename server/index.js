@@ -23,6 +23,14 @@ const pool = new Pool({
     process.env.DATABASE_SSL === 'true'
       ? { rejectUnauthorized: false }
       : undefined,
+  max: 5,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 15_000,
+  keepAlive: true,
+})
+
+pool.on('error', (error) => {
+  console.error('Postgres idle client error:', error.code || error.message)
 })
 
 const DEFAULT_CAPACITIES = {
@@ -609,6 +617,9 @@ app.use(
 app.use(express.json({ limit: '20mb' }))
 
 const server = http.createServer(app)
+server.headersTimeout = 180_000
+server.requestTimeout = 180_000
+server.timeout = 180_000
 const wss = new WebSocketServer({ server, path: '/ws' })
 
 function broadcast(type) {
@@ -1049,17 +1060,18 @@ function cricketEntryError(reg) {
   if (!CRICKET_EVENTS.includes(reg.event)) return null
   if (!reg.fullName) return 'Player name is required'
   if (!/^\d{10}$/.test(reg.mobile)) return 'A 10-digit mobile is required'
-  if (!reg.location) return "Player's area is required"
   if (reg.sports.length !== 1 || reg.sports[0]?.sportId !== reg.event) {
     return 'Cricket registration must include that cricket sport only'
   }
+  if (!reg.location || reg.location === 'Other') return "Player's area is required"
   const sport = reg.sports[0]
   if (!['batsman', 'bowler', 'allrounder'].includes(sport.skill)) {
     return 'Player skill is required'
   }
-  if (!sport.birthDate) return 'Birth date is required'
   const photo = String(sport.photoUrl || '')
-  if (!isStoredUpload(photo, 'cricket')) return "Player's photo is required"
+  if (!photo.startsWith('data:image/') && !isStoredUpload(photo, 'cricket')) {
+    return "Player's photo is required"
+  }
   return null
 }
 
@@ -1089,11 +1101,41 @@ async function registrationError(reg, excludeId = null) {
   )
 }
 
+async function connectDb(attempts = 3) {
+  let lastError
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await pool.connect()
+    } catch (error) {
+      lastError = error
+      console.error('Postgres connect failed:', error.code || error.message)
+      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)))
+    }
+  }
+  throw lastError
+}
+
 async function insertRegistration(client, reg) {
   await client.query(
     `INSERT INTO registrations
       (id, event, full_name, mobile, location, gender, sports, created_at, receipt_no, pay_mode, paid_to, amount, payment_shot_url, utr_no, payment_status, ocr_details)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)
+     ON CONFLICT (id) DO UPDATE SET
+      event = EXCLUDED.event,
+      full_name = EXCLUDED.full_name,
+      mobile = EXCLUDED.mobile,
+      location = EXCLUDED.location,
+      gender = EXCLUDED.gender,
+      sports = EXCLUDED.sports,
+      created_at = EXCLUDED.created_at,
+      receipt_no = EXCLUDED.receipt_no,
+      pay_mode = EXCLUDED.pay_mode,
+      paid_to = EXCLUDED.paid_to,
+      amount = EXCLUDED.amount,
+      payment_shot_url = EXCLUDED.payment_shot_url,
+      utr_no = EXCLUDED.utr_no,
+      payment_status = EXCLUDED.payment_status,
+      ocr_details = EXCLUDED.ocr_details`,
     [
       reg.id,
       reg.event,
@@ -1186,7 +1228,7 @@ app.post('/api/registrations/checkout', async (req, res) => {
         return
       }
     }
-    const client = await pool.connect()
+    const client = await connectDb()
     try {
       await client.query('BEGIN')
       for (const reg of prepared) await insertRegistration(client, reg)
@@ -1243,7 +1285,7 @@ app.post('/api/registrations', async (req, res) => {
       res.status(error.startsWith('Already registered') ? 409 : 400).json({ error })
       return
     }
-    const client = await pool.connect()
+    const client = await connectDb()
     try {
       await insertRegistration(client, reg)
     } finally {
@@ -1423,8 +1465,17 @@ app.use(
     maxAge: '7d',
   }),
 )
-app.use(express.static(distDir))
+app.use(
+  express.static(distDir, {
+    setHeaders(res, filePath) {
+      if (path.extname(filePath) === '.html') {
+        res.setHeader('Cache-Control', 'no-store')
+      }
+    },
+  }),
+)
 app.get(/^(?!\/api).*/, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
   res.sendFile(path.join(distDir, 'index.html'), (err) => {
     if (err) res.status(404).send('Frontend not built. Run npm run build.')
   })
