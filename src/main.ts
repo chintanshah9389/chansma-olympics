@@ -1480,16 +1480,6 @@ function setFormat(id: SportId, format: PlayFormat): void {
   render()
 }
 
-function playerHasInput(player?: { fullName?: string; mobile?: string; age?: string }): boolean {
-  return Boolean(player?.fullName?.trim() || player?.mobile?.trim() || player?.age?.trim())
-}
-
-function formatSectionHasInput(id: SportId): boolean {
-  if (needsFormat(id) && state.formats[id]) return true
-  const players = state.doublesPlayers[id]
-  return playerHasInput(players?.player1) || playerHasInput(players?.player2)
-}
-
 function clearFormatSection(id: SportId): void {
   state.doublesPlayers[id] = {
     player1: emptyDoublesPlayer(),
