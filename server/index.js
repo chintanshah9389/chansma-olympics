@@ -1037,17 +1037,18 @@ function cricketEntryError(reg) {
   if (!CRICKET_EVENTS.includes(reg.event)) return null
   if (!reg.fullName) return 'Player name is required'
   if (!/^\d{10}$/.test(reg.mobile)) return 'A 10-digit mobile is required'
-  if (!reg.location) return "Player's area is required"
   if (reg.sports.length !== 1 || reg.sports[0]?.sportId !== reg.event) {
     return 'Cricket registration must include that cricket sport only'
   }
+  if (!reg.location || reg.location === 'Other') return "Player's area is required"
   const sport = reg.sports[0]
   if (!['batsman', 'bowler', 'allrounder'].includes(sport.skill)) {
     return 'Player skill is required'
   }
-  if (!sport.birthDate) return 'Birth date is required'
   const photo = String(sport.photoUrl || '')
-  if (!isStoredUpload(photo, 'cricket')) return "Player's photo is required"
+  if (!photo.startsWith('data:image/') && !isStoredUpload(photo, 'cricket')) {
+    return "Player's photo is required"
+  }
   return null
 }
 

@@ -5822,6 +5822,7 @@ img.sport-icon {
   .progress-track,
   .actions,
   .panel-foot,
+  .reuse-sheet,
   .conflict-actions {
     display: none !important;
   }
@@ -6140,8 +6141,224 @@ body[data-lang='gu'] .i18n-sep {
 }
 
 /* First-page rules sheet */
-body.disclaimer-open {
+body.disclaimer-open,
+body.reuse-open {
   overflow: hidden;
+}
+
+.reuse-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.1rem;
+  background: rgba(6, 21, 40, 0.58);
+}
+
+.reuse-card {
+  width: min(100%, 24rem);
+  padding: 1.25rem 1.2rem 1.05rem;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.reuse-card h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  letter-spacing: 0.04em;
+  color: var(--navy);
+}
+
+.reuse-sub {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.player-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin: 0 0 0.55rem;
+}
+
+.player-head-title {
+  margin: 0;
+}
+
+.player-head-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-autofill {
+  appearance: none;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.28rem 0.7rem;
+  border: 1.5px solid rgba(11, 31, 58, 0.18);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--navy);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-autofill[hidden] {
+  display: none !important;
+}
+
+.btn-autofill:hover,
+.btn-autofill:focus-visible {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: #fff;
+}
+
+.reuse-empty {
+  margin: 0.85rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.reuse-people {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0.95rem 0 1.05rem;
+}
+
+.reuse-person {
+  appearance: none;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.7rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--cream-soft);
+  text-align: left;
+  cursor: pointer;
+}
+
+.reuse-person.is-selected {
+  border-color: var(--navy);
+  box-shadow: inset 0 0 0 1px var(--navy);
+  background: #fff;
+}
+
+.reuse-check {
+  display: grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.15rem;
+  border: 1.5px solid var(--navy);
+  border-radius: 4px;
+  background: #fff;
+  color: #fff;
+}
+
+.reuse-check .icon {
+  width: 0.78rem;
+  height: 0.78rem;
+}
+
+.reuse-person.is-selected .reuse-check {
+  background: var(--navy);
+}
+
+.reuse-person-copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.reuse-slot {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+
+.reuse-person strong {
+  color: var(--navy);
+}
+
+.reuse-person-copy > span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.reuse-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.reuse-card-head h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.reuse-close {
+  appearance: none;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.28rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--navy);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.reuse-close:hover,
+.reuse-close:focus-visible {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: #fff;
+}
+
+.reuse-actions {
+  display: flex;
+  gap: 0.55rem;
+}
+
+.reuse-actions .btn {
+  flex: 1 1 0;
+  margin-left: 0;
+  justify-content: center;
+}
+
+.reuse-actions .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .disclaimer {

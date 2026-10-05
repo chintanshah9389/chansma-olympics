@@ -11,6 +11,8 @@ export const PLAYER_AREAS = [
   'Dahisar - West',
 ] as const
 
+export const PLAYER_AREA_OTHER = 'Other'
+
 export const PLAYER_SKILLS = [
   { id: 'batsman', en: 'Batsman', gu: 'બેટ્સમેન' },
   { id: 'bowler', en: 'Bowler', gu: 'બોલર' },
@@ -19,65 +21,40 @@ export const PLAYER_SKILLS = [
 
 export type PlayerSkill = (typeof PLAYER_SKILLS)[number]['id']
 
-export type CricketField =
-  | 'firstName'
-  | 'fatherName'
-  | 'grandfatherName'
-  | 'surname'
-  | 'mobile'
-  | 'age'
-  | 'skill'
-  | 'birthDate'
-  | 'area'
-  | 'photo'
+export type CricketField = 'fullName' | 'mobile' | 'age' | 'area' | 'areaOther' | 'photo'
 
 export interface CricketPlayer {
-  firstName: string
-  fatherName: string
-  grandfatherName: string
-  surname: string
+  fullName: string
   mobile: string
   age: string
-  skill: PlayerSkill | ''
-  birthDate: string
   area: string
+  areaOther: string
   photoName: string
   photoUrl: string
 }
 
-const MAX_PHOTO_BYTES = 3 * 1024 * 1024
-
 export function emptyCricketPlayer(): CricketPlayer {
   return {
-    firstName: '',
-    fatherName: '',
-    grandfatherName: '',
-    surname: '',
+    fullName: '',
     mobile: '',
     age: '',
-    skill: '',
-    birthDate: '',
     area: '',
+    areaOther: '',
     photoName: '',
     photoUrl: '',
   }
 }
 
-export function ageFromBirthDate(iso: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null
-  const born = new Date(`${iso}T00:00:00`)
-  if (Number.isNaN(born.getTime())) return null
-  const today = new Date()
-  let age = today.getFullYear() - born.getFullYear()
-  const month = today.getMonth() - born.getMonth()
-  if (month < 0 || (month === 0 && today.getDate() < born.getDate())) age -= 1
-  if (age < 0 || age > 120) return null
-  return age
+export function cricketAreaLocation(player: CricketPlayer): string {
+  if (player.area === PLAYER_AREA_OTHER) return player.areaOther.trim()
+  return player.area.trim()
 }
 
 export function playerDisplayName(player: CricketPlayer): string {
-  return [player.firstName, player.surname].filter(Boolean).join(' ').trim()
+  return player.fullName.trim()
 }
+
+const MAX_PHOTO_BYTES = 3 * 1024 * 1024
 
 /** Shrink a photo in the browser so the preview stays at or under 3 MB. */
 export async function optimizePhoto(
