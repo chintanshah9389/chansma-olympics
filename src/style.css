@@ -3096,6 +3096,59 @@ details.entry-fold.fold {
   border-bottom: 1px solid var(--line);
 }
 
+.admin-fold {
+  padding: 0;
+}
+
+.admin-fold-summary {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 2.6rem 1.15rem 1.35rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.admin-fold-summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-fold-summary::marker {
+  content: '';
+}
+
+.admin-fold-summary::after {
+  content: '';
+  position: absolute;
+  top: 1.55rem;
+  right: 1.25rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid var(--navy);
+  border-bottom: 2px solid var(--navy);
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+}
+
+.admin-fold[open] > .admin-fold-summary::after {
+  transform: rotate(-135deg);
+  margin-top: 0.15rem;
+}
+
+.admin-fold-summary .capacity-sub {
+  max-width: 40rem;
+}
+
+.admin-fold-body {
+  padding: 0 1.35rem 1.35rem;
+}
+
+.admin-fold-body .capacity-toolbar {
+  margin-bottom: 0.9rem;
+}
+
 .capacity-top {
   display: flex;
   flex-wrap: wrap;
@@ -4654,6 +4707,23 @@ button.upload-link-btn {
 
   .capacity-panel {
     padding: 1rem 0.9rem 1.1rem;
+  }
+
+  .admin-fold {
+    padding: 0;
+  }
+
+  .admin-fold-summary {
+    padding: 0.95rem 2.2rem 0.95rem 0.9rem;
+  }
+
+  .admin-fold-summary::after {
+    right: 0.95rem;
+    top: 1.2rem;
+  }
+
+  .admin-fold-body {
+    padding: 0 0.9rem 1.1rem;
   }
 
   .capacity-top {

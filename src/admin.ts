@@ -829,12 +829,35 @@ function receiptPreviewHtml(item: ReceiptStoreItem | null): string {
     </div>`
 }
 
+function adminAccordion(
+  id: AdminFoldId,
+  title: string,
+  sub: string,
+  inner: string,
+  extraClass = '',
+): string {
+  return `
+    <details class="capacity-panel admin-fold ${extraClass}" data-admin-fold="${id}"${adminFolds.has(id) ? ' open' : ''}>
+      <summary class="admin-fold-summary">
+        <div class="capacity-intro">
+          <p class="capacity-kicker">Live settings</p>
+          <h2 class="capacity-title">${title}</h2>
+          <p class="capacity-sub">${sub}</p>
+        </div>
+      </summary>
+      <div class="admin-fold-body">
+        ${inner}
+      </div>
+    </details>`
+}
 let searchQuery = ''
 let sportFilter: SportFilter = 'all'
 let genderFilter: GenderFilter = 'all'
 let statusFilter: StatusFilter = 'all'
 let adminView: 'registrations' | 'receipts' = 'registrations'
 let previewReceiptKey: string | null = null
+type AdminFoldId = 'availability' | 'slots' | 'ages' | 'fees'
+const adminFolds = new Set<AdminFoldId>()
 let unsubRealtime: (() => void) | null = null
 let adminRoot: HTMLElement | null = null
 let realtimeRefreshTimer: number | null = null
@@ -1007,6 +1030,10 @@ export function renderAdmin(root: HTMLElement): void {
   const previewItem = previewReceiptKey
     ? (allReceipts.find((item) => item.key === previewReceiptKey) ?? null)
     : null
+  if (availabilityError || availabilityMessage) adminFolds.add('availability')
+  if (capacityError || capacityMessage) adminFolds.add('slots')
+  if (ageError || ageMessage) adminFolds.add('ages')
+  if (feeError || feeMessage) adminFolds.add('fees')
 
   const sportCounts = Object.fromEntries(
     ALL_SPORT_IDS.map((id) => [
@@ -1045,55 +1072,51 @@ export function renderAdmin(root: HTMLElement): void {
 
       <main class="panel panel-admin">
         ${isSuperAdmin() ? `
-        <section class="capacity-panel">
-          <div class="capacity-top">
-            <div class="capacity-intro">
-              <p class="capacity-kicker">Live settings</p>
-              <h2 class="capacity-title">Sports on the form</h2>
-              <p class="capacity-sub">Turn a sport off to remove it from registration. The name, photo, rules, and price for a closed sport are hidden. Turn it on again to bring it back.</p>
-            </div>
+        ${adminAccordion(
+          'availability',
+          'Sports on the form',
+          'Turn a sport off to remove it from registration. The name, photo, rules, and price for a closed sport are hidden. Turn it on again to bring it back.',
+          `
             <div class="capacity-toolbar">
               <button type="button" class="btn btn-gold" data-admin="apply-availability" ${availabilitySaving ? 'disabled' : ''}>
                 ${availabilitySaving ? 'Saving…' : 'Apply sports'}
               </button>
             </div>
-          </div>
-          ${availabilityError ? `<div class="alert">${escapeHtml(availabilityError)}</div>` : ''}
-          ${availabilityMessage ? `<div class="capacity-ok">${escapeHtml(availabilityMessage)}</div>` : ''}
-          <div class="capacity-table-wrap">
-            <table class="capacity-table">
-              <thead>
-                <tr>
-                  <th scope="col">Sport</th>
-                  <th scope="col">Registration</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${AVAILABILITY_IDS.map((id) => {
-                  const on = ensureAvailabilityDraft()[id] !== false
-                  return `
+            ${availabilityError ? `<div class="alert">${escapeHtml(availabilityError)}</div>` : ''}
+            ${availabilityMessage ? `<div class="capacity-ok">${escapeHtml(availabilityMessage)}</div>` : ''}
+            <div class="capacity-table-wrap">
+              <table class="capacity-table">
+                <thead>
                   <tr>
-                    <th scope="row"><span class="sport-heading">${sportIcon(id)} ${sportLabel(id)}</span></th>
-                    <td>
-                      <label class="avail-switch">
-                        <input type="checkbox" data-availability="${id}" ${on ? 'checked' : ''} aria-label="${sportLabel(id)} on the form" />
-                        <span>${on ? 'On' : 'Off'}</span>
-                      </label>
-                    </td>
-                  </tr>`
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="capacity-panel">
-          <div class="capacity-top">
-            <div class="capacity-intro">
-              <p class="capacity-kicker">Live settings</p>
-              <h2 class="capacity-title">Slot counts</h2>
-              <p class="capacity-sub">Men and women capacity per sport in seat units. Singles use 1 seat; doubles use 2. Apply rebalances confirmed vs waiting by registration time and updates live badges.</p>
+                    <th scope="col">Sport</th>
+                    <th scope="col">Registration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${AVAILABILITY_IDS.map((id) => {
+                    const on = ensureAvailabilityDraft()[id] !== false
+                    return `
+                    <tr>
+                      <th scope="row"><span class="sport-heading">${sportIcon(id)} ${sportLabel(id)}</span></th>
+                      <td>
+                        <label class="avail-switch">
+                          <input type="checkbox" data-availability="${id}" ${on ? 'checked' : ''} aria-label="${sportLabel(id)} on the form" />
+                          <span>${on ? 'On' : 'Off'}</span>
+                        </label>
+                      </td>
+                    </tr>`
+                  }).join('')}
+                </tbody>
+              </table>
             </div>
+          `,
+        )}
+
+        ${adminAccordion(
+          'slots',
+          'Slot counts',
+          'Men and women capacity per sport in seat units. Singles use 1 seat; doubles use 2. Apply rebalances confirmed vs waiting by registration time and updates live badges.',
+          `
             <div class="capacity-toolbar">
               <div class="capacity-fill">
                 <span class="capacity-fill-label">Fill all</span>
@@ -1104,91 +1127,79 @@ export function renderAdmin(root: HTMLElement): void {
                 ${capacitySaving ? 'Applying…' : 'Apply changes'}
               </button>
             </div>
-          </div>
-
-          ${
-            capacityError
-              ? `<div class="alert">${escapeHtml(capacityError)}</div>`
-              : ''
-          }
-          ${
-            capacityMessage
-              ? `<div class="capacity-ok">${escapeHtml(capacityMessage)}</div>`
-              : ''
-          }
-
-          <div class="capacity-table-wrap">
-            <table class="capacity-table">
-              <thead>
-                <tr>
-                  <th scope="col">Sport</th>
-                  <th scope="col">Men</th>
-                  <th scope="col">Women</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${ALL_SPORT_IDS.map((id) => {
-                  const caps = ensureCapacityDraft()[id]
-                  return `
+            ${capacityError ? `<div class="alert">${escapeHtml(capacityError)}</div>` : ''}
+            ${capacityMessage ? `<div class="capacity-ok">${escapeHtml(capacityMessage)}</div>` : ''}
+            <div class="capacity-table-wrap">
+              <table class="capacity-table">
+                <thead>
                   <tr>
-                    <th scope="row"><span class="sport-heading">${sportIcon(id)} ${sportLabel(id)}</span></th>
-                    <td>
-                      <input type="number" min="0" step="1"
-                        id="cap-male-${id}"
-                        data-cap-sport="${id}" data-cap-gender="male"
-                        value="${caps.male}" aria-label="${sportLabel(id)} men" />
-                    </td>
-                    <td>
-                      <input type="number" min="0" step="1"
-                        id="cap-female-${id}"
-                        data-cap-sport="${id}" data-cap-gender="female"
-                        value="${caps.female}" aria-label="${sportLabel(id)} women" />
-                    </td>
+                    <th scope="col">Sport</th>
+                    <th scope="col">Men</th>
+                    <th scope="col">Women</th>
                   </tr>
-                `
-                }).join('')}
-                ${(() => {
-                  const caps = ensureCricketDraft()
-                  return `
-                  <tr>
-                    <th scope="row"><span class="sport-heading">${iconCricket()} Turf cricket</span></th>
-                    <td>
-                      <input type="number" min="0" step="1"
-                        id="cap-male-turf"
-                        data-cricket-cap="turf" data-cap-gender="male"
-                        value="${caps.turf.male}" aria-label="Turf cricket men" />
-                    </td>
-                    <td>
-                      <input type="number" min="0" step="1"
-                        id="cap-female-turf"
-                        data-cricket-cap="turf" data-cap-gender="female"
-                        value="${caps.turf.female}" aria-label="Turf cricket women" />
-                    </td>
-                  </tr>
-                  <tr>
-                    <th scope="row"><span class="sport-heading">${iconCricket()} Overarm cricket</span></th>
-                    <td>
-                      <input type="number" min="0" step="1"
-                        id="cap-male-overarm"
-                        data-cricket-cap="overarm" data-cap-gender="male"
-                        value="${caps.overarm.male}" aria-label="Overarm cricket men" />
-                    </td>
-                    <td class="cap-na">Men only</td>
-                  </tr>
+                </thead>
+                <tbody>
+                  ${ALL_SPORT_IDS.map((id) => {
+                    const caps = ensureCapacityDraft()[id]
+                    return `
+                    <tr>
+                      <th scope="row"><span class="sport-heading">${sportIcon(id)} ${sportLabel(id)}</span></th>
+                      <td>
+                        <input type="number" min="0" step="1"
+                          id="cap-male-${id}"
+                          data-cap-sport="${id}" data-cap-gender="male"
+                          value="${caps.male}" aria-label="${sportLabel(id)} men" />
+                      </td>
+                      <td>
+                        <input type="number" min="0" step="1"
+                          id="cap-female-${id}"
+                          data-cap-sport="${id}" data-cap-gender="female"
+                          value="${caps.female}" aria-label="${sportLabel(id)} women" />
+                      </td>
+                    </tr>
                   `
-                })()}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="capacity-panel age-limits-panel">
-          <div class="capacity-top">
-            <div class="capacity-intro">
-              <p class="capacity-kicker">Live settings</p>
-              <h2 class="capacity-title">Age restriction by sport</h2>
-              <p class="capacity-sub">Set min and max age for each sport. Registration validates player ages against that sport’s limits.</p>
+                  }).join('')}
+                  ${(() => {
+                    const caps = ensureCricketDraft()
+                    return `
+                    <tr>
+                      <th scope="row"><span class="sport-heading">${iconCricket()} Turf cricket</span></th>
+                      <td>
+                        <input type="number" min="0" step="1"
+                          id="cap-male-turf"
+                          data-cricket-cap="turf" data-cap-gender="male"
+                          value="${caps.turf.male}" aria-label="Turf cricket men" />
+                      </td>
+                      <td>
+                        <input type="number" min="0" step="1"
+                          id="cap-female-turf"
+                          data-cricket-cap="turf" data-cap-gender="female"
+                          value="${caps.turf.female}" aria-label="Turf cricket women" />
+                      </td>
+                    </tr>
+                    <tr>
+                      <th scope="row"><span class="sport-heading">${iconCricket()} Overarm cricket</span></th>
+                      <td>
+                        <input type="number" min="0" step="1"
+                          id="cap-male-overarm"
+                          data-cricket-cap="overarm" data-cap-gender="male"
+                          value="${caps.overarm.male}" aria-label="Overarm cricket men" />
+                      </td>
+                      <td class="cap-na">Men only</td>
+                    </tr>
+                    `
+                  })()}
+                </tbody>
+              </table>
             </div>
+          `,
+        )}
+
+        ${adminAccordion(
+          'ages',
+          'Age restriction by sport',
+          'Set min and max age for each sport. Registration validates player ages against that sport’s limits.',
+          `
             <div class="capacity-toolbar">
               <div class="capacity-fill">
                 <span class="capacity-fill-label">Fill all</span>
@@ -1201,94 +1212,83 @@ export function renderAdmin(root: HTMLElement): void {
                 ${ageSaving ? 'Saving…' : 'Apply age limits'}
               </button>
             </div>
-          </div>
-
-          ${
-            ageError
-              ? `<div class="alert">${escapeHtml(ageError)}</div>`
-              : ''
-          }
-          ${
-            ageMessage
-              ? `<div class="capacity-ok">${escapeHtml(ageMessage)}</div>`
-              : ''
-          }
-
-          <div class="capacity-table-wrap">
-            <table class="capacity-table">
-              <thead>
-                <tr>
-                  <th scope="col">Sport</th>
-                  <th scope="col">Min age</th>
-                  <th scope="col">Max age</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${AGE_LIMIT_IDS.map((id) => {
-                  const ages = ensureAgeDraft()[id]
-                  return `
+            ${ageError ? `<div class="alert">${escapeHtml(ageError)}</div>` : ''}
+            ${ageMessage ? `<div class="capacity-ok">${escapeHtml(ageMessage)}</div>` : ''}
+            <div class="capacity-table-wrap">
+              <table class="capacity-table">
+                <thead>
                   <tr>
-                    <th scope="row"><span class="sport-heading">${sportIcon(id)} ${sportLabel(id)}</span></th>
-                    <td>
-                      <input type="number" min="1" max="120" step="1"
-                        id="age-min-${id}"
-                        data-age-sport="${id}" data-age-bound="min"
-                        value="${ages.minAge}" aria-label="${sportLabel(id)} min age" />
-                    </td>
-                    <td>
-                      <input type="number" min="1" max="120" step="1"
-                        id="age-max-${id}"
-                        data-age-sport="${id}" data-age-bound="max"
-                        value="${ages.maxAge}" aria-label="${sportLabel(id)} max age" />
-                    </td>
+                    <th scope="col">Sport</th>
+                    <th scope="col">Min age</th>
+                    <th scope="col">Max age</th>
                   </tr>
-                `
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="capacity-panel">
-          <div class="capacity-top">
-            <div class="capacity-intro">
-              <p class="capacity-kicker">Live settings</p>
-              <h2 class="capacity-title">Entry fees</h2>
-              <p class="capacity-sub">Price per player in rupees. Doubles charge two players. Turf and overarm are one team fee each. The payment page uses these amounts.</p>
+                </thead>
+                <tbody>
+                  ${AGE_LIMIT_IDS.map((id) => {
+                    const ages = ensureAgeDraft()[id]
+                    return `
+                    <tr>
+                      <th scope="row"><span class="sport-heading">${sportIcon(id)} ${sportLabel(id)}</span></th>
+                      <td>
+                        <input type="number" min="1" max="120" step="1"
+                          id="age-min-${id}"
+                          data-age-sport="${id}" data-age-bound="min"
+                          value="${ages.minAge}" aria-label="${sportLabel(id)} min age" />
+                      </td>
+                      <td>
+                        <input type="number" min="1" max="120" step="1"
+                          id="age-max-${id}"
+                          data-age-sport="${id}" data-age-bound="max"
+                          value="${ages.maxAge}" aria-label="${sportLabel(id)} max age" />
+                      </td>
+                    </tr>
+                  `
+                  }).join('')}
+                </tbody>
+              </table>
             </div>
+          `,
+          'age-limits-panel',
+        )}
+
+        ${adminAccordion(
+          'fees',
+          'Entry fees',
+          'Price per player in rupees. Doubles charge two players. Turf and overarm are one team fee each. The payment page uses these amounts.',
+          `
             <div class="capacity-toolbar">
               <button type="button" class="btn btn-gold" data-admin="apply-fees" ${feeSaving ? 'disabled' : ''}>
                 ${feeSaving ? 'Saving…' : 'Apply prices'}
               </button>
             </div>
-          </div>
-          ${feeError ? `<div class="alert">${escapeHtml(feeError)}</div>` : ''}
-          ${feeMessage ? `<div class="capacity-ok">${escapeHtml(feeMessage)}</div>` : ''}
-          <div class="capacity-table-wrap">
-            <table class="capacity-table">
-              <thead>
-                <tr>
-                  <th scope="col">Sport</th>
-                  <th scope="col">Price per player (₹)</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${FEE_ROWS.map((row) => `
+            ${feeError ? `<div class="alert">${escapeHtml(feeError)}</div>` : ''}
+            ${feeMessage ? `<div class="capacity-ok">${escapeHtml(feeMessage)}</div>` : ''}
+            <div class="capacity-table-wrap">
+              <table class="capacity-table">
+                <thead>
                   <tr>
-                    <th scope="row"><span class="sport-heading">${sportIcon(row.id)} ${row.label}</span></th>
-                    <td>
-                      <input type="number" min="0" step="1"
-                        id="fee-${row.id}"
-                        data-fee-id="${row.id}"
-                        value="${ensureFeeDraft()[row.id]}"
-                        aria-label="${row.label} price" />
-                    </td>
+                    <th scope="col">Sport</th>
+                    <th scope="col">Price per player (₹)</th>
                   </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                </thead>
+                <tbody>
+                  ${FEE_ROWS.map((row) => `
+                    <tr>
+                      <th scope="row"><span class="sport-heading">${sportIcon(row.id)} ${row.label}</span></th>
+                      <td>
+                        <input type="number" min="0" step="1"
+                          id="fee-${row.id}"
+                          data-fee-id="${row.id}"
+                          value="${ensureFeeDraft()[row.id]}"
+                          aria-label="${row.label} price" />
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `,
+        )}
         ` : ''}
 
         <div class="admin-views">
@@ -1447,6 +1447,15 @@ export function renderAdmin(root: HTMLElement): void {
   search?.addEventListener('input', () => {
     searchQuery = search.value
     renderAdmin(root)
+  })
+
+  root.querySelectorAll<HTMLDetailsElement>('[data-admin-fold]').forEach((panel) => {
+    panel.addEventListener('toggle', () => {
+      const id = panel.dataset.adminFold as AdminFoldId | undefined
+      if (!id) return
+      if (panel.open) adminFolds.add(id)
+      else adminFolds.delete(id)
+    })
   })
 
   root.querySelectorAll<HTMLButtonElement>('[data-filter-sport]').forEach((btn) => {
