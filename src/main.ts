@@ -391,6 +391,11 @@ function cricketChoiceNeeded(): boolean {
 }
 
 function syncSoleCricketKind(): void {
+  if (!pickCricket) {
+    pickTurf = false
+    pickOverarm = false
+    return
+  }
   const kinds = cricketKindsForGender()
   if (kinds.length !== 1) return
   pickTurf = kinds[0] === 'turf'
@@ -981,8 +986,8 @@ function updateLiveSlotBadges(): void {
 function anySeatWaiting(): boolean {
   const indoorWaiting =
     pickIndoor && buildSelectedSports().some((sport) => sport.status === 'waiting')
-  const turfWaiting = pickTurf && cricketStatus('turf') === 'waiting'
-  const overarmWaiting = pickOverarm && cricketStatus('overarm') === 'waiting'
+  const turfWaiting = pickCricket && pickTurf && cricketStatus('turf') === 'waiting'
+  const overarmWaiting = pickCricket && pickOverarm && cricketStatus('overarm') === 'waiting'
   return Boolean(indoorWaiting || turfWaiting || overarmWaiting)
 }
 
@@ -1248,6 +1253,7 @@ function canSubmit(): { ok: boolean; message: string } {
 
 function cricketConflictLines(): { kind: CricketKind; message: string }[] {
   const lines: { kind: CricketKind; message: string }[] = []
+  if (!pickCricket) return lines
   if (pickTurf) {
     const message = describeCricketConflict('turf', cricketEntry.mobile)
     if (message) lines.push({ kind: 'turf', message })
@@ -2029,7 +2035,7 @@ function submit(): void {
     render()
     return
   }
-  if ((pickTurf || pickOverarm) && !validateCricket()) {
+  if (pickCricket && (pickTurf || pickOverarm) && !validateCricket()) {
     payError = biText('Cricket details are incomplete.', 'ક્રિકેટ વિગતો અધૂરી છે.')
     shouldRevealErrors = true
     render()
@@ -2061,8 +2067,8 @@ function submit(): void {
       amount,
     })
   }
-  if (pickTurf) batch.push(cricketRegistration('turf', `${receipt}-TF`, createdAt, receipt))
-  if (pickOverarm) batch.push(cricketRegistration('overarm', `${receipt}-OA`, createdAt, receipt))
+  if (pickCricket && pickTurf) batch.push(cricketRegistration('turf', `${receipt}-TF`, createdAt, receipt))
+  if (pickCricket && pickOverarm) batch.push(cricketRegistration('overarm', `${receipt}-OA`, createdAt, receipt))
   if (batch.length === 0) {
     payError = biText('Nothing to save.', 'સાચવવા માટે કંઈ નથી.')
     render()
@@ -3463,7 +3469,7 @@ function cricketReviewStatus(): 'confirmed' | 'waiting' {
 }
 
 function cricketReviewCard(fold?: { key: string; open: boolean }): string {
-  if (!pickTurf && !pickOverarm) return ''
+  if (!pickCricket || (!pickTurf && !pickOverarm)) return ''
   const clashes = cricketConflictLines()
   const player = cricketEntry
   const both = pickTurf && pickOverarm
@@ -3546,13 +3552,13 @@ function feeLines(
       })
     }
   }
-  if (pickTurf) {
+  if (pickCricket && pickTurf) {
     lines.push({
       label: `Turf cricket · 1 × ${inr(getFee('turf'))}`,
       amount: getFee('turf'),
     })
   }
-  if (pickOverarm) {
+  if (pickCricket && pickOverarm) {
     lines.push({
       label: `Overarm cricket · 1 × ${inr(getFee('overarm'))}`,
       amount: getFee('overarm'),
@@ -3888,7 +3894,7 @@ async function makeReceiptPdf(): Promise<{ blob: Blob; filename: string } | null
   const paidHow =
     payMode === 'cash' ? `Cash · ${cashCollector}` : 'Online · UPI / bank'
   const logo = await loadDataUrl('/chanasma-logo.png')
-  const cricketPhoto = pickTurf || pickOverarm ? await loadDataUrl(cricketEntry.photoUrl) : null
+  const cricketPhoto = pickCricket && (pickTurf || pickOverarm) ? await loadDataUrl(cricketEntry.photoUrl) : null
   const shot = payMode === 'online' && paymentShot ? await loadDataUrl(paymentShot) : null
 
   let y = 36
@@ -3965,7 +3971,7 @@ async function makeReceiptPdf(): Promise<{ blob: Blob; filename: string } | null
     )
   }
 
-  if (pickTurf || pickOverarm) {
+  if (pickCricket && (pickTurf || pickOverarm)) {
     const player = cricketEntry
     const both = pickTurf && pickOverarm
     const heading = both ? 'Cricket' : pickTurf ? 'Turf cricket' : 'Overarm cricket'
