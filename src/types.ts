@@ -6,7 +6,7 @@ export type SportId =
   | 'tt'
   | 'badminton'
 
-/** Indoor sports plus the two cricket events stored on a registration row. */
+/** Olympic games plus the two cricket events stored on a registration row. */
 export type SeatSportId = SportId | 'turf' | 'overarm'
 
 export type Gender = 'male' | 'female'

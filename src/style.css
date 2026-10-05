@@ -118,7 +118,7 @@ body::before {
 .masthead {
   position: relative;
   margin: 0 0 0.55rem;
-  padding: 0.7rem 0.85rem 0.55rem;
+  padding: 0 0 0.5rem;
   border-radius: 22px;
   background: #fff;
   border: 1px solid rgba(255, 255, 255, 0.8);
@@ -137,19 +137,15 @@ body::before {
 }
 
 .masthead-brand {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 0.45rem;
+  position: relative;
+  min-height: 5.15rem;
+  padding: 0.7rem 0.85rem 0.15rem;
 }
 
 .masthead-logo {
-  grid-column: 1;
-  grid-row: 1;
-  z-index: 1;
-  justify-self: start;
-  width: 3.35rem;
-  height: 3.35rem;
+  flex: 0 0 auto;
+  width: 3.1rem;
+  height: 3.1rem;
   object-fit: contain;
   border-radius: 50%;
   background: #fff;
@@ -157,13 +153,9 @@ body::before {
 }
 
 .masthead-stage {
-  grid-column: 1 / -1;
-  grid-row: 1;
   position: relative;
-  z-index: 0;
-  min-width: 0;
-  min-height: 3.85rem;
-  margin-inline: 3.15rem;
+  width: 100%;
+  min-height: 5.15rem;
   pointer-events: none;
 }
 
@@ -175,10 +167,23 @@ body::before {
   align-items: center;
   justify-content: center;
   gap: 0.12rem;
+  width: 100%;
 }
 
 .masthead-face-brand {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
   animation: masthead-swap-brand 6.8s ease-in-out infinite;
+}
+
+.masthead-brand-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.08rem;
 }
 
 .masthead-face-brand h1 {
@@ -216,14 +221,11 @@ body::before {
 }
 
 .masthead-admin {
-  grid-column: 3;
-  grid-row: 1;
-  z-index: 1;
-  justify-self: end;
   display: grid;
   place-items: center;
   width: 2rem;
   height: 2rem;
+  flex: 0 0 auto;
   padding: 0;
   border-radius: 50%;
   border: 1px solid rgba(11, 31, 58, 0.12);
@@ -238,20 +240,23 @@ body::before {
 }
 
 .masthead-face-sponsor {
+  inset: -0.7rem -0.85rem;
+  width: auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
-  gap: 0.1rem;
-  padding: 0.28rem 0.55rem 0.26rem;
-  border-radius: 14px;
-  border: 1px solid rgba(240, 193, 75, 0.28);
+  gap: 0.22rem;
+  padding: 0.7rem 0.7rem 0.65rem;
+  border: 0;
+  border-radius: 0;
   background:
-    radial-gradient(ellipse 80% 140% at 8% 50%, rgba(240, 193, 75, 0.2), transparent 52%),
-    radial-gradient(ellipse 50% 120% at 96% 0%, rgba(0, 133, 199, 0.22), transparent 48%),
+    radial-gradient(ellipse 70% 140% at 8% 50%, rgba(240, 193, 75, 0.2), transparent 52%),
+    radial-gradient(ellipse 50% 120% at 96% 0%, rgba(0, 133, 199, 0.2), transparent 48%),
     linear-gradient(180deg, #16345c 0%, #0b1f3a 100%);
-  color: rgba(255, 255, 255, 0.82);
+  color: rgba(255, 255, 255, 0.92);
   text-align: center;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    0 10px 22px rgba(6, 21, 40, 0.16);
+  box-shadow: none;
   animation: masthead-swap-sponsor 6.8s ease-in-out infinite;
 }
 
@@ -293,48 +298,65 @@ body::before {
 }
 
 .masthead-face-sponsor .sponsor-kicker {
-  padding: 0.12rem 0.5rem;
-  border-radius: 999px;
-  background: rgba(240, 193, 75, 0.14);
-  color: var(--gold-bright);
-  box-shadow: inset 0 0 0 1px rgba(240, 193, 75, 0.28);
-}
-
-.masthead-face-sponsor .sponsor-lockup {
   position: relative;
   z-index: 1;
-  gap: 0.45rem;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(240, 193, 75, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(240, 193, 75, 0.32);
+  color: var(--gold-bright);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  line-height: 1.15;
+}
+
+.masthead-face-sponsor .sponsor-title,
+.masthead-face-sponsor strong {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: var(--gold-bright);
+  font-size: 1.32rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .masthead-face-sponsor .sponsor-mark {
-  width: 1.85rem;
-  height: 1.85rem;
+  width: 3.1rem;
+  height: 3.1rem;
+  animation: none;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 0 1.5px rgba(240, 193, 75, 0.75);
 }
 
 .masthead-face-sponsor .sponsor-logo {
-  width: 1.15rem;
-  height: 1.15rem;
+  width: 2.15rem;
+  height: 2.15rem;
+  filter: brightness(0) invert(1);
+  animation: none;
+  transform: none;
 }
 
-.masthead-face-sponsor .sponsor-name {
-  align-items: flex-start;
-  gap: 0.08rem;
-  text-align: left;
-}
-
-.masthead-face-sponsor .sponsor-title {
-  color: var(--gold-bright);
-  font-size: 0.82rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  line-height: 1.1;
-}
-
-.masthead-face-sponsor .sponsor-name small {
-  max-width: 14rem;
-  font-size: 0.52rem;
+.masthead-face-sponsor .sponsor-line {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin-top: 0.08rem;
+  padding-top: 0.22rem;
+  border-top: 1px solid rgba(240, 193, 75, 0.28);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
   letter-spacing: 0.03em;
   line-height: 1.2;
+  white-space: nowrap;
+  opacity: 1;
 }
 
 .sponsor-logo {
@@ -371,7 +393,6 @@ body::before {
   animation: mark-glow 2.6s ease-in-out infinite;
 }
 
-.masthead-face-sponsor .sponsor-logo,
 .site-foot .sponsor-logo,
 .disclaimer-sponsor .sponsor-logo,
 .disclaimer-foot-sponsor .sponsor-logo,
@@ -379,15 +400,6 @@ body::before {
 .receipt-sponsor-pill .sponsor-logo {
   filter: brightness(0) invert(1);
   animation: mark-float 2.8s ease-in-out infinite;
-}
-
-.masthead-face-sponsor strong {
-  color: var(--gold-bright);
-  font-size: 0.92rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  line-height: 1.15;
-  text-transform: uppercase;
 }
 
 .sponsor-title {
@@ -416,9 +428,19 @@ body::before {
   display: inline;
 }
 
+.masthead-tools {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+  padding: 0 0.85rem;
+}
+
 .masthead .lang-tabs {
   width: min(100%, 16rem);
-  margin: 0.5rem auto 0;
+  margin: 0;
+  flex: 0 1 16rem;
   box-shadow: none;
 }
 
@@ -557,15 +579,15 @@ body::before {
 
 @keyframes masthead-swap-brand {
   0%,
-  40% {
+  38% {
     opacity: 1;
     transform: translateY(0);
     visibility: visible;
   }
-  48%,
+  46%,
   92% {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(-8px);
     visibility: hidden;
   }
   100% {
@@ -577,20 +599,21 @@ body::before {
 
 @keyframes masthead-swap-sponsor {
   0%,
-  40% {
+  46% {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(8px);
     visibility: hidden;
   }
-  48%,
-  92% {
+  54%,
+  84% {
     opacity: 1;
     transform: translateY(0);
     visibility: visible;
   }
+  92%,
   100% {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(8px);
     visibility: hidden;
   }
 }
@@ -1462,6 +1485,7 @@ input.is-invalid,
   display: flex;
   flex-direction: column;
   min-width: 0;
+  height: 100%;
   min-height: 100%;
   border: 2px solid rgba(11, 31, 58, 0.12);
   border-radius: 22px;
@@ -1531,6 +1555,7 @@ button.gate-card:hover {
   align-content: start;
   gap: 0.4rem;
   padding: 0.95rem 1rem 1.05rem;
+  flex: 1;
 }
 
 .gate-kicker,
@@ -1670,11 +1695,82 @@ button.gate-card:hover {
   }
 
   .gate-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .gate-grid:not(:has(.gate-and)) {
     grid-template-columns: 1fr;
   }
 
   .gate-and {
-    justify-self: center;
+    display: none;
+  }
+
+  .gate-banner {
+    min-height: 4.5rem;
+    padding: 0.65rem 1.85rem 0.65rem 0.7rem;
+    gap: 0.4rem;
+  }
+
+  .gate-day,
+  .gate-sub-day {
+    font-size: 1.7rem;
+  }
+
+  .gate-when {
+    font-size: 0.58rem;
+    letter-spacing: 0.08em;
+  }
+
+  .gate-title {
+    font-size: 1.18rem;
+    letter-spacing: 0.03em;
+  }
+
+  .gate-kicker,
+  .gate-label {
+    font-size: 0.58rem;
+  }
+
+  .gate-body {
+    padding: 0.62rem 0.62rem 0.7rem;
+    gap: 0.22rem;
+  }
+
+  .sport-tiles {
+    gap: 0.22rem;
+  }
+
+  .gate-card .sport-tile-name {
+    display: none;
+  }
+
+  .gate-banner-title {
+    font-size: 1.12rem;
+  }
+
+  .cricket-head {
+    gap: 0.35rem;
+  }
+
+  .cricket-date {
+    font-size: 0.62rem;
+    white-space: normal;
+  }
+
+  .gate-photo {
+    min-height: 7.2rem;
+  }
+
+  .gate-tick {
+    width: 1.15rem;
+    height: 1.15rem;
+  }
+
+  .gate-banner .gate-tick {
+    top: 0.65rem;
+    right: 0.65rem;
   }
 
   .gate-split {
@@ -2129,6 +2225,26 @@ button.pick-box:hover,
   flex: 1;
   min-height: 11rem;
   background: url('/icons/cricket-ground.jpg') center 40% / cover no-repeat;
+}
+
+.gate-photo-sports {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 0.22rem;
+  padding: 0.38rem;
+  background: #efe8d8;
+}
+
+.gate-photo-sports .sport-tile-photo {
+  aspect-ratio: auto;
+  height: 100%;
+  min-height: 0;
+  border-radius: 10px;
+}
+
+.gate-photo-sports .sport-tile-photo img.sport-icon {
+  object-fit: cover;
 }
 
 .choice:disabled {
@@ -3759,23 +3875,37 @@ details.entry-fold.fold {
   }
 
   .masthead {
-    padding: 0.62rem 0.65rem 0.5rem;
+    padding: 0 0 0.45rem;
     border-radius: 18px;
   }
 
+  .masthead-brand {
+    min-height: 4.85rem;
+    padding: 0.58rem 0.65rem 0.1rem;
+  }
+
   .masthead-logo {
-    width: 2.55rem;
-    height: 2.55rem;
+    width: 2.45rem;
+    height: 2.45rem;
+  }
+
+  .masthead-face-brand {
+    gap: 0.45rem;
   }
 
   .masthead-stage {
-    min-height: 3.25rem;
-    margin-inline: 2.7rem;
+    min-height: 4.85rem;
   }
 
   .masthead-face-brand h1 {
-    font-size: clamp(1.2rem, 5vw, 1.45rem);
+    font-size: clamp(1.15rem, 4.8vw, 1.4rem);
     letter-spacing: 0.04em;
+  }
+
+  .masthead-tools {
+    margin-top: 0.35rem;
+    gap: 0.3rem;
+    padding: 0 0.65rem;
   }
 
   .masthead-admin {
@@ -3784,37 +3914,42 @@ details.entry-fold.fold {
   }
 
   .masthead-face-sponsor {
-    padding: 0.22rem 0.42rem 0.2rem;
-    gap: 0.08rem;
+    inset: -0.58rem -0.65rem;
+    gap: 0.16rem;
+    padding: 0.55rem 0.4rem 0.5rem;
   }
 
   .masthead-face-sponsor .sponsor-kicker {
-    font-size: 0.54rem;
-    letter-spacing: 0.12em;
-    padding: 0.1rem 0.42rem;
+    font-size: 0.56rem;
+    letter-spacing: 0.14em;
+    padding: 0.08rem 0.45rem;
   }
 
   .masthead-face-sponsor .sponsor-mark {
-    width: 1.9rem;
-    height: 1.9rem;
+    width: 2.7rem;
+    height: 2.7rem;
   }
 
   .masthead-face-sponsor .sponsor-logo {
-    width: 1.2rem;
-    height: 1.2rem;
+    width: 1.85rem;
+    height: 1.85rem;
   }
 
-  .masthead-face-sponsor .sponsor-title {
-    font-size: 0.82rem;
+  .masthead-face-sponsor .sponsor-title,
+  .masthead-face-sponsor strong {
+    font-size: 1.12rem;
+    letter-spacing: 0.045em;
+    gap: 0.28rem;
   }
 
-  .masthead-face-sponsor .sponsor-name small {
-    max-width: 14.5rem;
-    font-size: 0.54rem;
+  .masthead-face-sponsor .sponsor-line {
+    font-size: 0.88rem;
+    letter-spacing: 0.02em;
+    padding-top: 0.16rem;
   }
 
   .masthead .lang-tabs {
-    margin-top: 0.4rem;
+    margin-top: 0;
   }
 
   .masthead .lang-tab {
@@ -4412,6 +4547,32 @@ details.entry-fold.fold {
 
   .step-title {
     font-size: 1.4rem;
+  }
+
+  .gate-title {
+    font-size: 1.05rem;
+  }
+
+  .gate-banner-title {
+    font-size: 1.02rem;
+  }
+
+  .gate-photo {
+    min-height: 6.4rem;
+  }
+
+  .masthead-face-sponsor {
+    gap: 0.12rem;
+    padding: 0.48rem 0.28rem 0.42rem;
+  }
+
+  .masthead-face-sponsor .sponsor-title,
+  .masthead-face-sponsor strong {
+    font-size: 1rem;
+  }
+
+  .masthead-face-sponsor .sponsor-line {
+    font-size: 0.82rem;
   }
 }
 

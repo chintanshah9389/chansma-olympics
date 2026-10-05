@@ -178,21 +178,35 @@ function sponsorBlockHtml(
   return `<span class="sponsor-kicker">${bi(labelEn, labelGu)}</span><span class="sponsor-lockup"><span class="sponsor-mark">${sponsorLogoHtml()}</span>${sponsorStrongHtml()}</span>`
 }
 
+function mastheadSponsorHtml(): string {
+  return `
+            <span class="sponsor-kicker">${bi('Event partner', 'ઇવેન્ટ પાર્ટનર')}</span>
+            <strong class="sponsor-title">
+              <span class="sponsor-mark">${sponsorLogoHtml()}</span>
+              ${escapeHtml(MAIN_SPONSOR)}
+            </strong>
+            <small class="sponsor-line">Matushree Kantaben Narottamdas Shah Parivar</small>`
+}
+
 function mastheadHtml(): string {
   return `
       <header class="masthead">
         <div class="masthead-brand">
-          <img class="masthead-logo" src="/chanasma-logo.png" alt="Chanasma Jain Yuva Youth" />
           <div class="masthead-stage">
             <div class="masthead-face masthead-face-brand">
-              <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
-              <div class="olympic-rings" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+              <img class="masthead-logo" src="/chanasma-logo.png" alt="Chanasma Jain Yuva Youth" />
+              <div class="masthead-brand-copy">
+                <h1><span class="brand-place">CHANASMA</span><span class="brand-olympic">OLYMPIC</span></h1>
+                <div class="olympic-rings" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+              </div>
             </div>
-            <div class="masthead-face masthead-face-sponsor">${sponsorBlockHtml()}</div>
+            <div class="masthead-face masthead-face-sponsor">${mastheadSponsorHtml()}</div>
           </div>
+        </div>
+        <div class="masthead-tools">
+          ${langTabsHtml()}
           <a class="masthead-admin" href="#/admin" aria-label="Admin">${iconAdmin()}</a>
         </div>
-        ${langTabsHtml()}
       </header>`
 }
 
@@ -970,9 +984,9 @@ function validateBegin(): boolean {
     const cricketOn = cricketOpen()
     beginError =
       indoorOn && cricketOn
-        ? biText('Select Indoor, Cricket, or both.', 'ઇન્ડોર, ક્રિકેટ, અથવા બંને પસંદ કરો.')
+        ? biText('Select Olympic games, Cricket, or both.', 'ઓલિમ્પિક રમતો, ક્રિકેટ, અથવા બંને પસંદ કરો.')
         : indoorOn
-          ? biText('Select Indoor.', 'ઇન્ડોર પસંદ કરો.')
+          ? biText('Select Olympic games.', 'ઓલિમ્પિક રમતો પસંદ કરો.')
           : cricketOn
             ? biText('Select Cricket.', 'ક્રિકેટ પસંદ કરો.')
             : biText('Registration is closed.', 'નોંધણી બંધ છે.')
@@ -1858,7 +1872,7 @@ function renderProgress(): string {
       group === 'outdoor'
         ? 'Outdoor'
         : group === 'indoor'
-          ? 'Indoor'
+          ? 'Olympic'
           :       group === 'pay'
             ? 'Pay'
             : group === 'receipt'
@@ -2547,7 +2561,7 @@ function disclaimerHtml(): string {
 
           ${
             indoorOpen()
-              ? `<h3>${bi('Indoor sports', 'ઇન્ડોર રમતો')}</h3>${indoorTable}`
+              ? `<h3>${bi('Olympic games', 'ઓલિમ્પિક રમતો')}</h3>${indoorTable}`
               : ''
           }
 
@@ -2626,29 +2640,23 @@ function renderBegin(): string {
   const tiles = indoor.sports.filter((sport) => sport.sportId && isSportEnabled(sport.sportId))
   const indoorCard = showIndoor
     ? `
-        <button type="button" class="gate-card ${pickIndoor ? 'is-selected' : ''}" data-action="toggle-indoor">
+        <button type="button" class="gate-card ${pickIndoor ? 'is-selected' : ''}" data-action="toggle-indoor" data-tone="olympic">
           <span class="gate-banner">
-            <span>
-              <span class="gate-day">${indoor.day}</span>
-              <span class="gate-when">${indoor.month} ${indoor.year}</span>
+            <span class="cricket-head">
+              <span class="gate-banner-title">${bi('Olympic games', 'ઓલિમ્પિક રમતો')}</span>
+              <span class="cricket-dates">
+                <span class="cricket-date">${bi(`${Number(indoor.day)} ${indoor.month} ${indoor.year}`, indoor.dateGu)}</span>
+              </span>
             </span>
             <span class="gate-tick" aria-hidden="true"></span>
           </span>
-          <span class="gate-body">
-            <span class="gate-kicker">${bi(indoor.date, indoor.dateGu)}</span>
-            <span class="gate-title">${bi('Indoor', 'ઇન્ડોર')}</span>
-            <span class="gate-label">${bi('Sports on this day', 'આ દિવસની રમતો')}</span>
-            <span class="sport-tiles">
-              ${tiles
-                .map(
-                  (sport) => `
-                <span class="sport-tile">
-                  <span class="sport-tile-photo">${sport.sportId ? sportIcon(sport.sportId) : ''}</span>
-                  <span class="sport-tile-name">${bi(sport.en, sport.gu)}</span>
-                </span>`,
-                )
-                .join('')}
-            </span>
+          <span class="gate-photo gate-photo-sports" aria-hidden="true">
+            ${tiles
+              .map(
+                (sport) =>
+                  `<span class="sport-tile-photo">${sport.sportId ? sportIcon(sport.sportId) : ''}</span>`,
+              )
+              .join('')}
           </span>
         </button>`
     : ''
@@ -3111,6 +3119,14 @@ function cricketReviewCard(fold?: { key: string; open: boolean }): string {
 
 function inr(amount: number): string {
   return `₹${amount.toLocaleString('en-IN')}`
+}
+
+function pdfInr(amount: number): string {
+  return `Rs ${amount.toLocaleString('en-IN')}`
+}
+
+function pdfMoney(text: string): string {
+  return text.replaceAll('₹', 'Rs ')
 }
 
 function feeLines(
@@ -3590,8 +3606,8 @@ async function makeReceiptPdf(): Promise<{ blob: Blob; filename: string } | null
   for (const line of lines) {
     pdf.setFontSize(10)
     pdf.setTextColor(11, 31, 58)
-    pdf.text(line.label, left + 12, lineY)
-    pdf.text(inr(line.amount), left + width - 12, lineY, { align: 'right' })
+    pdf.text(pdfMoney(line.label), left + 12, lineY)
+    pdf.text(pdfInr(line.amount), left + width - 12, lineY, { align: 'right' })
     lineY += 16
   }
   pdf.setDrawColor(11, 31, 58)
@@ -3599,7 +3615,7 @@ async function makeReceiptPdf(): Promise<{ blob: Blob; filename: string } | null
   pdf.setFontSize(12)
   pdf.text('Total', left + 12, lineY + 12)
   pdf.setTextColor(223, 0, 36)
-  pdf.text(inr(total), left + width - 12, lineY + 12, { align: 'right' })
+  pdf.text(pdfInr(total), left + width - 12, lineY + 12, { align: 'right' })
   y += billH + 18
 
   y = pdfEnsureSpace(pdf, y, 24)
