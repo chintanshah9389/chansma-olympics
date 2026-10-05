@@ -186,6 +186,79 @@ function uploadLink(url: string | undefined, label: string): string {
   return `<a class="upload-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`
 }
 
+type ReceiptStoreItem = {
+  key: string
+  receiptNo: string
+  createdAt: string
+  names: string[]
+  mobile: string
+  payMode: Registration['payMode']
+  paidTo: string
+  amount: number
+  paymentShotUrl: string
+  receiptPdfUrl: string
+  sports: string[]
+}
+
+function receiptStoreItems(regs: Registration[]): ReceiptStoreItem[] {
+  const map = new Map<string, ReceiptStoreItem>()
+  for (const registration of regs) {
+    const key = registration.receiptNo || registration.id
+    const sports = registration.sports.map((sport) => sportLabel(sport.sportId))
+    const existing = map.get(key)
+    if (!existing) {
+      map.set(key, {
+        key,
+        receiptNo: registration.receiptNo || registration.id,
+        createdAt: registration.createdAt,
+        names: registration.fullName ? [registration.fullName] : [],
+        mobile: registration.mobile,
+        payMode: registration.payMode,
+        paidTo: registration.paidTo || '',
+        amount: registration.amount || 0,
+        paymentShotUrl: registration.paymentShotUrl || '',
+        receiptPdfUrl: registration.receiptPdfUrl || '',
+        sports: [...sports],
+      })
+      continue
+    }
+    if (registration.fullName && !existing.names.includes(registration.fullName)) {
+      existing.names.push(registration.fullName)
+    }
+    existing.amount += registration.amount || 0
+    if (!existing.paymentShotUrl && registration.paymentShotUrl) {
+      existing.paymentShotUrl = registration.paymentShotUrl
+    }
+    if (!existing.receiptPdfUrl && registration.receiptPdfUrl) {
+      existing.receiptPdfUrl = registration.receiptPdfUrl
+    }
+    for (const sport of sports) {
+      if (!existing.sports.includes(sport)) existing.sports.push(sport)
+    }
+    if (createdAtMs(registration.createdAt) < createdAtMs(existing.createdAt)) {
+      existing.createdAt = registration.createdAt
+    }
+  }
+  return [...map.values()].sort(
+    (left, right) => createdAtMs(right.createdAt) - createdAtMs(left.createdAt),
+  )
+}
+
+function matchesReceiptQuery(item: ReceiptStoreItem, q: string): boolean {
+  if (!q) return true
+  return [
+    item.receiptNo,
+    item.mobile,
+    item.paidTo,
+    payModeLabel(item.payMode),
+    ...item.names,
+    ...item.sports,
+  ]
+    .join(' ')
+    .toLowerCase()
+    .includes(q)
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
@@ -396,7 +469,15 @@ function rowHtml(row: FlatRow, index: number): string {
       <td>${escapeHtml(s?.player2Name || '—')}</td>
       <td>${escapeHtml(s?.player2Mobile || '—')}</td>
       <td>${escapeHtml(s?.player2Age != null ? String(s.player2Age) : '—')}</td>
-      <td class="col-ref"><code>${escapeHtml(r.receiptNo || r.id)}</code>${r.payMode ? `<div class="pay-note">${escapeHtml(r.payMode === 'cash' ? `Cash · ${r.paidTo || '—'}` : `Online${r.amount ? ` · ₹${r.amount}` : ''}`)}</div>` : ''}${uploadLink(s?.photoUrl, 'Player photo')}${uploadLink(r.paymentShotUrl, 'Payment screenshot')}</td>
+      <td class="col-ref">
+        <div class="ref-line">
+          <code>${escapeHtml(r.receiptNo || r.id)}</code>
+          <button type="button" class="btn btn-ghost btn-compact" data-preview-receipt="${escapeHtml(r.receiptNo || r.id)}">View PDF</button>
+        </div>
+        ${r.payMode ? `<div class="pay-note">${escapeHtml(r.payMode === 'cash' ? `Cash · ${r.paidTo || '—'}` : `Online${r.amount ? ` · ₹${r.amount}` : ''}`)}</div>` : ''}
+        ${uploadLink(s?.photoUrl, 'Player photo')}
+        ${uploadLink(r.paymentShotUrl, 'Payment screenshot')}
+      </td>
       <td class="col-when">${escapeHtml(formatWhen(r.createdAt))}</td>
       <td class="col-actions">
         <button type="button" class="btn btn-ghost btn-table" data-edit-row="${escapeHtml(key)}" ${tableBusy ? 'disabled' : ''}>${withIcon(iconEdit(), 'Edit')}</button>
@@ -598,6 +679,7 @@ function downloadCsv(rows: FlatRow[]): void {
     'Amount',
     'Player Photo URL',
     'Payment Screenshot URL',
+    'Receipt PDF URL',
     'Registration ID',
     'Registered At',
   ]
@@ -634,6 +716,7 @@ function downloadCsv(rows: FlatRow[]): void {
         r.amount != null ? String(r.amount) : '',
         absoluteUploadUrl(s?.photoUrl),
         absoluteUploadUrl(r.paymentShotUrl),
+        absoluteUploadUrl(r.receiptPdfUrl),
         r.id,
         r.createdAt,
       ]
@@ -661,10 +744,97 @@ function filterChip(
   return `<button type="button" class="filter-chip${active ? ' is-active' : ''}" ${attrs}>${escapeHtml(label)}</button>`
 }
 
+function receiptsStoreHtml(items: ReceiptStoreItem[]): string {
+  if (items.length === 0) {
+    return `<p class="admin-empty-copy">No saved receipts yet. After a player downloads their PDF, it is stored here for preview and download.</p>`
+  }
+  return `
+    <div class="receipt-store">
+      ${items
+        .map((item) => {
+          const paid =
+            item.payMode === 'cash'
+              ? `Cash · ${item.paidTo || '—'}`
+              : item.payMode === 'online'
+                ? `Online${item.amount ? ` · ₹${item.amount}` : ''}`
+                : item.amount
+                  ? `₹${item.amount}`
+                  : '—'
+          const thumb = item.paymentShotUrl
+            ? `<img src="${escapeHtml(item.paymentShotUrl)}" alt="" />`
+            : `<span class="receipt-store-blank">${item.receiptPdfUrl ? 'PDF' : 'No file'}</span>`
+          return `
+            <article class="receipt-store-card">
+              <button type="button" class="receipt-store-thumb" data-preview-receipt="${escapeHtml(item.key)}" aria-label="Open receipt ${escapeHtml(item.receiptNo)}">
+                ${thumb}
+              </button>
+              <div class="receipt-store-copy">
+                <p class="receipt-store-no">${escapeHtml(item.receiptNo)}</p>
+                <p>${escapeHtml(item.names.join(' · ') || '—')}</p>
+                <p>${escapeHtml(item.sports.join(', ') || '—')}</p>
+                <p>${escapeHtml(paid)} · ${escapeHtml(formatWhen(item.createdAt))}</p>
+                <div class="receipt-store-actions">
+                  <button type="button" class="btn btn-ghost btn-compact" data-preview-receipt="${escapeHtml(item.key)}">View full</button>
+                  ${
+                    item.receiptPdfUrl
+                      ? `<a class="btn btn-gold btn-compact" href="${escapeHtml(item.receiptPdfUrl)}" download="${escapeHtml(item.receiptNo)}.pdf">Download PDF</a>`
+                      : `<span class="receipt-store-missing">PDF not stored</span>`
+                  }
+                </div>
+              </div>
+            </article>`
+        })
+        .join('')}
+    </div>`
+}
+
+function receiptPreviewHtml(item: ReceiptStoreItem | null): string {
+  if (!item) return ''
+  const paid =
+    item.payMode === 'cash'
+      ? `Cash · ${item.paidTo || '—'}`
+      : item.payMode === 'online'
+        ? 'Online · UPI / bank'
+        : '—'
+  return `
+    <div class="admin-preview-backdrop" data-close-preview-backdrop>
+      <div class="admin-preview" role="dialog" aria-modal="true" aria-labelledby="admin-preview-title">
+        <div class="admin-preview-head">
+          <div>
+            <h3 id="admin-preview-title">Receipt ${escapeHtml(item.receiptNo)}</h3>
+            <p>${escapeHtml(item.names.join(' · ') || '—')} · ${escapeHtml(paid)} · ${escapeHtml(formatWhen(item.createdAt))}</p>
+          </div>
+          <div class="admin-preview-tools">
+            ${
+              item.receiptPdfUrl
+                ? `<a class="btn btn-gold" href="${escapeHtml(item.receiptPdfUrl)}" download="${escapeHtml(item.receiptNo)}.pdf">${withIcon(iconDownload(), 'Download PDF')}</a>`
+                : ''
+            }
+            <button type="button" class="btn btn-ghost" data-admin="close-preview">Close</button>
+          </div>
+        </div>
+        <div class="admin-preview-body">
+          ${
+            item.receiptPdfUrl
+              ? `<iframe class="admin-preview-pdf" title="Receipt PDF" src="${escapeHtml(item.receiptPdfUrl)}"></iframe>`
+              : `<p class="admin-empty-copy">This registration was saved before receipt PDFs were stored. The payment screenshot is below if one was uploaded.</p>`
+          }
+          ${
+            item.paymentShotUrl
+              ? `<figure class="admin-preview-shot"><img src="${escapeHtml(item.paymentShotUrl)}" alt="Payment screenshot" /><figcaption>Payment screenshot</figcaption></figure>`
+              : ''
+          }
+        </div>
+      </div>
+    </div>`
+}
+
 let searchQuery = ''
 let sportFilter: SportFilter = 'all'
 let genderFilter: GenderFilter = 'all'
 let statusFilter: StatusFilter = 'all'
+let adminView: 'registrations' | 'receipts' = 'registrations'
+let previewReceiptKey: string | null = null
 let unsubRealtime: (() => void) | null = null
 let adminRoot: HTMLElement | null = null
 let realtimeRefreshTimer: number | null = null
@@ -830,6 +1000,13 @@ export function renderAdmin(root: HTMLElement): void {
         matchesQuery(row, searchQuery.trim().toLowerCase()),
     ),
   )
+  const allReceipts = receiptStoreItems(regs)
+  const receipts = allReceipts.filter((item) =>
+    matchesReceiptQuery(item, searchQuery.trim().toLowerCase()),
+  )
+  const previewItem = previewReceiptKey
+    ? (allReceipts.find((item) => item.key === previewReceiptKey) ?? null)
+    : null
 
   const sportCounts = Object.fromEntries(
     ALL_SPORT_IDS.map((id) => [
@@ -1114,30 +1291,44 @@ export function renderAdmin(root: HTMLElement): void {
         </section>
         ` : ''}
 
+        <div class="admin-views">
+          <button type="button" class="admin-view-tab${adminView === 'registrations' ? ' is-selected' : ''}" data-admin="view-registrations">Registrations</button>
+          <button type="button" class="admin-view-tab${adminView === 'receipts' ? ' is-selected' : ''}" data-admin="view-receipts">Receipt PDFs (${allReceipts.length})</button>
+        </div>
+
         <div class="admin-toolbar">
           <div class="admin-stats">
-            <span><strong>${regs.length}</strong> registrations</span>
+            ${
+              adminView === 'receipts'
+                ? `<span><strong>${receipts.length}</strong> receipts</span>
+            <span><strong>${receipts.filter((item) => item.receiptPdfUrl).length}</strong> PDFs stored</span>`
+                : `<span><strong>${regs.length}</strong> registrations</span>
             <span><strong>${seatUnitTotal}</strong> sport seats</span>
             <span class="stat-confirmed"><strong>${confirmedCount}</strong> confirmed</span>
             <span class="stat-waiting"><strong>${waitingCount}</strong> waiting</span>
             <span>Showing <strong>${rows.length}</strong></span>
-            ${selectedKeys.size ? `<span class="stat-selected"><strong>${selectedKeys.size}</strong> selected</span>` : ''}
+            ${selectedKeys.size ? `<span class="stat-selected"><strong>${selectedKeys.size}</strong> selected</span>` : ''}`
+            }
           </div>
           <div class="admin-actions">
             <input
               type="search"
               class="admin-search"
               name="adminSearch"
-              placeholder="Search name, mobile, sport, seat…"
+              placeholder="${adminView === 'receipts' ? 'Search receipt, name, mobile…' : 'Search name, mobile, sport, seat…'}"
               value="${escapeHtml(searchQuery)}"
               autocomplete="off"
             />
             <button type="button" class="btn btn-ghost" data-admin="refresh" ${tableBusy ? 'disabled' : ''}>${withIcon(iconRefresh(), 'Refresh')}</button>
-            <button type="button" class="btn btn-gold" data-admin="csv">${withIcon(iconDownload(), 'Export CSV')}</button>
+            ${
+              adminView === 'registrations'
+                ? `<button type="button" class="btn btn-gold" data-admin="csv">${withIcon(iconDownload(), 'Export CSV')}</button>
             ${
               isSuperAdmin()
                 ? `<button type="button" class="btn btn-ghost btn-danger" data-admin="bulk-delete" ${tableBusy || !selectedKeys.size ? 'disabled' : ''}>${withIcon(iconTrash(), `Delete selected (${selectedKeys.size})`)}</button>
             <button type="button" class="btn btn-ghost btn-danger" data-admin="reset-db" ${tableBusy ? 'disabled' : ''}>Reset DB</button>`
+                : ''
+            }`
                 : ''
             }
             ${
@@ -1159,6 +1350,10 @@ export function renderAdmin(root: HTMLElement): void {
             : ''
         }
 
+        ${
+          adminView === 'receipts'
+            ? receiptsStoreHtml(receipts)
+            : `
         <div class="admin-filters">
           <div class="filter-row">
             <span class="filter-label">Sport</span>
@@ -1240,10 +1435,12 @@ export function renderAdmin(root: HTMLElement): void {
               }
             </tbody>
           </table>
-        </div>
+        </div>`
+        }
       </main>
     </div>
     ${editModalHtml()}
+    ${receiptPreviewHtml(previewItem)}
   `
 
   const search = root.querySelector<HTMLInputElement>('input[name="adminSearch"]')
@@ -1381,6 +1578,15 @@ export function renderAdmin(root: HTMLElement): void {
         renderAdmin(root)
       } else if (action === 'close-edit') {
         editTarget = null
+        renderAdmin(root)
+      } else if (action === 'view-registrations') {
+        adminView = 'registrations'
+        renderAdmin(root)
+      } else if (action === 'view-receipts') {
+        adminView = 'receipts'
+        renderAdmin(root)
+      } else if (action === 'close-preview') {
+        previewReceiptKey = null
         renderAdmin(root)
       } else if (action === 'fill-all-ages') {
         const minInput = root.querySelector<HTMLInputElement>(
@@ -1673,6 +1879,24 @@ export function renderAdmin(root: HTMLElement): void {
     ?.addEventListener('click', (event) => {
       if (event.target === event.currentTarget) {
         editTarget = null
+        renderAdmin(root)
+      }
+    })
+
+  root.querySelectorAll<HTMLElement>('[data-preview-receipt]').forEach((el) => {
+    el.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      previewReceiptKey = el.dataset.previewReceipt || null
+      renderAdmin(root)
+    })
+  })
+
+  root
+    .querySelector('[data-close-preview-backdrop]')
+    ?.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) {
+        previewReceiptKey = null
         renderAdmin(root)
       }
     })

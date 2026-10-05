@@ -307,6 +307,9 @@ async function ensureSchema() {
     ALTER TABLE registrations
       ADD COLUMN IF NOT EXISTS payment_shot_url TEXT NOT NULL DEFAULT '';
 
+    ALTER TABLE registrations
+      ADD COLUMN IF NOT EXISTS receipt_pdf_url TEXT NOT NULL DEFAULT '';
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value JSONB NOT NULL,
@@ -371,7 +374,7 @@ function normalizeEvent(value) {
   return EVENT_IDS.includes(value) ? value : 'indoor'
 }
 
-const REGISTRATION_COLUMNS = `id, event, full_name, mobile, location, gender, sports, created_at, receipt_no, pay_mode, paid_to, amount, payment_shot_url`
+const REGISTRATION_COLUMNS = `id, event, full_name, mobile, location, gender, sports, created_at, receipt_no, pay_mode, paid_to, amount, payment_shot_url, receipt_pdf_url`
 
 function rowToRegistration(row) {
   const payMode = row.pay_mode === 'cash' || row.pay_mode === 'online' ? row.pay_mode : ''
@@ -389,6 +392,7 @@ function rowToRegistration(row) {
     paidTo: row.paid_to || '',
     amount: Number(row.amount) || 0,
     paymentShotUrl: row.payment_shot_url || '',
+    receiptPdfUrl: row.receipt_pdf_url || '',
   }
 }
 
@@ -403,11 +407,13 @@ function resolveUploadRoot() {
   try {
     fs.mkdirSync(path.join(preferred, 'cricket'), { recursive: true })
     fs.mkdirSync(path.join(preferred, 'payments'), { recursive: true })
+    fs.mkdirSync(path.join(preferred, 'receipts'), { recursive: true })
     return preferred
   } catch (error) {
     const fallback = path.join(rootDir, 'uploads')
     fs.mkdirSync(path.join(fallback, 'cricket'), { recursive: true })
     fs.mkdirSync(path.join(fallback, 'payments'), { recursive: true })
+    fs.mkdirSync(path.join(fallback, 'receipts'), { recursive: true })
     console.warn(
       `Upload folder ${preferred} is not writable (${error.message}). Using ${fallback}.`,
     )
@@ -431,14 +437,40 @@ function saveImageDataUrl(dataUrl, folder) {
   return `/uploads/${folder}/${name}`
 }
 
+function savePdfDataUrl(dataUrl) {
+  const match = /^data:application\/pdf;base64,([a-z0-9+/=\s]+)$/i.exec(
+    String(dataUrl || '').replace(/\s/g, ''),
+  )
+  if (!match) throw new Error('Upload a PDF receipt.')
+  const buffer = Buffer.from(match[1], 'base64')
+  if (buffer.length < 5 || buffer.subarray(0, 5).toString() !== '%PDF-') {
+    throw new Error('Upload a PDF receipt.')
+  }
+  if (buffer.length > 8 * 1024 * 1024) {
+    throw new Error('Receipt PDF must be under 8 MB.')
+  }
+  const name = `${crypto.randomBytes(16).toString('hex')}.pdf`
+  fs.mkdirSync(path.join(uploadRoot, 'receipts'), { recursive: true })
+  fs.writeFileSync(path.join(uploadRoot, 'receipts', name), buffer)
+  return `/uploads/receipts/${name}`
+}
+
 function isStoredUpload(url, folder) {
+  const value = String(url || '')
+  if (folder === 'receipts') {
+    return /^\/uploads\/receipts\/[a-f0-9]{32}\.pdf$/.test(value)
+  }
   return new RegExp(`^/uploads/${folder}/[a-f0-9]{32}\\.(jpg|png|webp)$`).test(
-    String(url || ''),
+    value,
   )
 }
 
 function localUploadPath(urlPath) {
-  if (!isStoredUpload(urlPath, 'cricket') && !isStoredUpload(urlPath, 'payments')) {
+  if (
+    !isStoredUpload(urlPath, 'cricket') &&
+    !isStoredUpload(urlPath, 'payments') &&
+    !isStoredUpload(urlPath, 'receipts')
+  ) {
     return null
   }
   const rel = String(urlPath).slice('/uploads/'.length)
@@ -451,6 +483,8 @@ function collectUploadUrls(row) {
   const urls = []
   if (row?.payment_shot_url) urls.push(row.payment_shot_url)
   if (row?.paymentShotUrl) urls.push(row.paymentShotUrl)
+  if (row?.receipt_pdf_url) urls.push(row.receipt_pdf_url)
+  if (row?.receiptPdfUrl) urls.push(row.receiptPdfUrl)
   const sports = Array.isArray(row?.sports) ? row.sports : []
   for (const sport of sports) {
     if (sport?.photoUrl) urls.push(sport.photoUrl)
@@ -461,7 +495,7 @@ function collectUploadUrls(row) {
 async function releaseUploads(urls) {
   const unique = [...new Set(urls.filter(Boolean))]
   if (unique.length === 0) return
-  const still = await pool.query(`SELECT sports, payment_shot_url FROM registrations`)
+  const still = await pool.query(`SELECT sports, payment_shot_url, receipt_pdf_url FROM registrations`)
   const used = new Set()
   for (const row of still.rows) {
     for (const url of collectUploadUrls(row)) used.add(url)
@@ -474,7 +508,7 @@ async function releaseUploads(urls) {
 }
 
 function clearUploadFiles() {
-  for (const folder of ['cricket', 'payments']) {
+  for (const folder of ['cricket', 'payments', 'receipts']) {
     const dir = path.join(uploadRoot, folder)
     if (!fs.existsSync(dir)) continue
     for (const name of fs.readdirSync(dir)) {
@@ -1095,8 +1129,8 @@ async function connectDb(attempts = 3) {
 async function insertRegistration(client, reg) {
   await client.query(
     `INSERT INTO registrations
-      (id, event, full_name, mobile, location, gender, sports, created_at, receipt_no, pay_mode, paid_to, amount, payment_shot_url)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9, $10, $11, $12, $13)
+      (id, event, full_name, mobile, location, gender, sports, created_at, receipt_no, pay_mode, paid_to, amount, payment_shot_url, receipt_pdf_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9, $10, $11, $12, $13, $14)
      ON CONFLICT (id) DO UPDATE SET
       event = EXCLUDED.event,
       full_name = EXCLUDED.full_name,
@@ -1109,7 +1143,8 @@ async function insertRegistration(client, reg) {
       pay_mode = EXCLUDED.pay_mode,
       paid_to = EXCLUDED.paid_to,
       amount = EXCLUDED.amount,
-      payment_shot_url = EXCLUDED.payment_shot_url`,
+      payment_shot_url = EXCLUDED.payment_shot_url,
+      receipt_pdf_url = COALESCE(NULLIF(registrations.receipt_pdf_url, ''), EXCLUDED.receipt_pdf_url)`,
     [
       reg.id,
       reg.event,
@@ -1124,6 +1159,7 @@ async function insertRegistration(client, reg) {
       reg.paidTo,
       reg.amount,
       reg.paymentShotUrl || '',
+      reg.receiptPdfUrl || '',
     ],
   )
 }
@@ -1192,6 +1228,53 @@ app.post('/api/registrations/checkout', async (req, res) => {
   }
 })
 
+app.post('/api/registrations/receipt-pdf', async (req, res) => {
+  const receiptNo = String(req.body?.receiptNo || '').trim().slice(0, 40)
+  const ids = Array.isArray(req.body?.ids)
+    ? [...new Set(req.body.ids.map((id) => String(id || '').trim()).filter(Boolean))]
+    : []
+  if (!receiptNo || ids.length === 0) {
+    res.status(400).json({ error: 'Receipt is missing' })
+    return
+  }
+  try {
+    const found = await pool.query(
+      `SELECT id, receipt_no, receipt_pdf_url FROM registrations WHERE id = ANY($1::text[])`,
+      [ids],
+    )
+    if (found.rows.length !== ids.length) {
+      res.status(404).json({ error: 'Registration not found' })
+      return
+    }
+    if (found.rows.some((row) => String(row.receipt_no || '') !== receiptNo)) {
+      res.status(400).json({ error: 'Receipt does not match' })
+      return
+    }
+    const existingUrl = found.rows.find((row) => isStoredUpload(row.receipt_pdf_url, 'receipts'))
+      ?.receipt_pdf_url
+    if (existingUrl) {
+      res.json({ ok: true, receiptPdfUrl: existingUrl })
+      return
+    }
+    let pdfUrl = ''
+    try {
+      pdfUrl = savePdfDataUrl(req.body?.pdf)
+    } catch (error) {
+      res.status(400).json({ error: error.message || 'Could not store the receipt PDF' })
+      return
+    }
+    await pool.query(
+      `UPDATE registrations SET receipt_pdf_url = $1 WHERE id = ANY($2::text[])`,
+      [pdfUrl, ids],
+    )
+    broadcastRegistrationsUpdated()
+    res.json({ ok: true, receiptPdfUrl: pdfUrl })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: 'Failed to store receipt PDF' })
+  }
+})
+
 app.post('/api/registrations', async (req, res) => {
   try {
     const reg = prepareRegistration(req.body ?? {})
@@ -1229,7 +1312,7 @@ app.delete('/api/registrations/:id', async (req, res) => {
   if (!requireAdmin(req, res)) return
   try {
     const existing = await pool.query(
-      `SELECT sports, payment_shot_url FROM registrations WHERE id = $1`,
+      `SELECT sports, payment_shot_url, receipt_pdf_url FROM registrations WHERE id = $1`,
       [req.params.id],
     )
     const result = await pool.query(
@@ -1341,7 +1424,7 @@ app.post('/api/registrations/bulk-delete', async (req, res) => {
     }
 
     const existing = await pool.query(
-      `SELECT sports, payment_shot_url FROM registrations WHERE id = ANY($1::text[])`,
+      `SELECT sports, payment_shot_url, receipt_pdf_url FROM registrations WHERE id = ANY($1::text[])`,
       [ids],
     )
     const result = await pool.query(
@@ -1384,6 +1467,12 @@ app.use(
     fallthrough: false,
     index: false,
     maxAge: '7d',
+    setHeaders(res, filePath) {
+      if (path.extname(filePath).toLowerCase() === '.pdf') {
+        res.setHeader('Content-Type', 'application/pdf')
+        res.setHeader('Content-Disposition', 'inline')
+      }
+    },
   }),
 )
 app.use(

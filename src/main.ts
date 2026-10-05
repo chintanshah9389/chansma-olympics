@@ -22,6 +22,7 @@ import {
   getRegistrations,
   saveCheckout,
   setActiveEvent,
+  storeReceiptPdf,
 } from './storage'
 import { eventById, getCricketCapacities } from './events'
 import {
@@ -268,6 +269,7 @@ let paymentShot = ''
 let paymentShotName = ''
 let payError = ''
 let receiptNo = ''
+let lastSavedIds: string[] = []
 let submitBusy = false
 let frozenBill: { label: string; amount: number }[] | null = null
 let receiptCricketStatus: Partial<Record<'turf' | 'overarm', 'confirmed' | 'waiting'>> = {}
@@ -2083,6 +2085,7 @@ function submit(): void {
       }
       frozenBill = feeLines(lastRegisteredSports)
       receiptNo = receipt
+      lastSavedIds = saved.map((row) => row.id)
       const storedPhoto = saved.find((row) => row.event === 'turf' || row.event === 'overarm')
         ?.sports[0]?.photoUrl
       if (storedPhoto) cricketEntry.photoUrl = storedPhoto
@@ -2150,6 +2153,7 @@ function clearFormFields(): void {
   paymentShotName = ''
   payError = ''
   receiptNo = ''
+  lastSavedIds = []
   autoDownloadReceipt = false
   receiptPdfBusy = false
   submitBusy = false
@@ -3850,6 +3854,25 @@ function downloadPdfBlob(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function archiveReceiptPdf(blob: Blob): Promise<void> {
+  if (!receiptNo || lastSavedIds.length === 0) return
+  try {
+    const pdf = await blobToDataUrl(blob)
+    await storeReceiptPdf(receiptNo, lastSavedIds, pdf)
+  } catch (error) {
+    console.error(error)
+  }
+}
+
 async function makeReceiptPdf(): Promise<{ blob: Blob; filename: string } | null> {
   if (!document.getElementById('receipt-sheet')) return null
   const { jsPDF } = await import('jspdf')
@@ -4053,6 +4076,7 @@ async function withReceiptPdf(
     const pdf = await makeReceiptPdf()
     preparing.remove()
     if (!pdf) throw new Error('Receipt is not ready')
+    void archiveReceiptPdf(pdf.blob)
     await next(pdf)
   } catch (error) {
     console.error(error)
