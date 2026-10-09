@@ -56,7 +56,7 @@ import {
   getCricketCapacities,
   type CricketCapacities,
 } from './events'
-import { getFees, type FeeId } from './fees'
+import { CASH_COLLECTORS, getFees, type FeeId } from './fees'
 import type {
   Gender,
   PlayFormat,
@@ -78,6 +78,7 @@ type FlatRow = {
 type SportFilter = 'all' | SeatSportId
 type GenderFilter = 'all' | Gender
 type StatusFilter = 'all' | SportSeatStatus
+type PayFilter = 'all' | 'online' | 'cash'
 
 let capacityDraft: SportCapacities | null = null
 let capacityMessage = ''
@@ -411,6 +412,7 @@ function matchesQuery(row: FlatRow, q: string): boolean {
     s?.skill ?? '',
     s?.birthDate ?? '',
     r.receiptNo ?? '',
+    payModeLabel(r.payMode),
     r.paidTo ?? '',
     s?.player1Name ?? '',
     s?.player1Mobile ?? '',
@@ -429,11 +431,36 @@ function matchesFilters(
   sport: SportFilter,
   gender: GenderFilter,
   status: StatusFilter,
+  pay: PayFilter,
+  collector: string,
 ): boolean {
   if (gender !== 'all' && row.registration.gender !== gender) return false
   if (sport !== 'all' && row.sport?.sportId !== sport) return false
   if (status !== 'all' && row.sport?.status !== status) return false
+  if (pay !== 'all' && row.registration.payMode !== pay) return false
+  if (pay === 'cash' && collector !== 'all' && collectorName(row) !== collector) {
+    return false
+  }
   return true
+}
+
+function collectorName(row: FlatRow): string {
+  return row.registration.paidTo?.trim() || 'Not named'
+}
+
+function uniqueRegistrations(rows: FlatRow[]): Registration[] {
+  const seen = new Set<string>()
+  const list: Registration[] = []
+  for (const row of rows) {
+    if (seen.has(row.registration.id)) continue
+    seen.add(row.registration.id)
+    list.push(row.registration)
+  }
+  return list
+}
+
+function inr(amount: number): string {
+  return `₹${amount.toLocaleString('en-IN')}`
 }
 
 function rowHtml(row: FlatRow, index: number): string {
@@ -456,27 +483,33 @@ function rowHtml(row: FlatRow, index: number): string {
       </td>
       <td class="col-num">${index + 1}</td>
       <td class="col-seat"><span class="status-pill ${statusClass}">${escapeHtml(statusLabel(row))}</span></td>
-      <td class="col-event">${escapeHtml(eventById(r.event).title)}</td>
-      <td class="col-sport">${s ? escapeHtml(s.skill ? `${sportLabel(s.sportId)} · ${s.skill}` : sportLabel(s.sportId)) : '—'}</td>
-      <td>${escapeHtml(r.fullName)}</td>
-      <td>${escapeHtml(genderLabel(r.gender))}</td>
-      <td>${s ? escapeHtml(formatLabel(s.format, s.sportId)) : '—'}</td>
-      <td>${escapeHtml(r.mobile)}</td>
-      <td>${escapeHtml(r.location)}</td>
-      <td>${escapeHtml(s?.player1Name || '—')}</td>
-      <td>${escapeHtml(s?.player1Mobile || '—')}</td>
-      <td>${escapeHtml(s?.player1Age != null ? String(s.player1Age) : '—')}</td>
-      <td>${escapeHtml(s?.player2Name || '—')}</td>
-      <td>${escapeHtml(s?.player2Mobile || '—')}</td>
-      <td>${escapeHtml(s?.player2Age != null ? String(s.player2Age) : '—')}</td>
+      <td class="col-sport">
+        <div class="stack-cell">
+          <strong>${s ? escapeHtml(s.skill ? `${sportLabel(s.sportId)} · ${s.skill}` : sportLabel(s.sportId)) : '—'}</strong>
+          <span class="cell-meta">${escapeHtml([eventById(r.event).title, genderLabel(r.gender), s ? formatLabel(s.format, s.sportId) : ''].filter(Boolean).join(' · '))}</span>
+        </div>
+      </td>
+      <td>
+        <div class="stack-cell">
+          <strong>${escapeHtml(r.fullName || '—')}</strong>
+          <span class="cell-meta">${escapeHtml([r.mobile, r.location].filter(Boolean).join(' · ') || '—')}</span>
+        </div>
+      </td>
+      <td>${playerDetailCell(row, 'player1')}</td>
+      <td>${playerDetailCell(row, 'player2')}</td>
       <td class="col-ref">
         <div class="ref-line">
           <code>${escapeHtml(r.receiptNo || r.id)}</code>
           <button type="button" class="btn btn-ghost btn-compact" data-preview-receipt="${escapeHtml(r.receiptNo || r.id)}">View PDF</button>
         </div>
-        ${r.payMode ? `<div class="pay-note">${escapeHtml(r.payMode === 'cash' ? `Cash · ${r.paidTo || '—'}` : `Online${r.amount ? ` · ₹${r.amount}` : ''}`)}</div>` : ''}
         ${uploadLink(s?.photoUrl, 'Player photo')}
         ${uploadLink(r.paymentShotUrl, 'Payment screenshot')}
+      </td>
+      <td>
+        <div class="stack-cell">
+          <strong>${escapeHtml(payModeLabel(r.payMode) || '—')}</strong>
+          ${r.payMode === 'cash' ? `<span class="cell-meta">${escapeHtml(collectorName(row))}</span>` : ''}
+        </div>
       </td>
       <td class="col-when">${escapeHtml(formatWhen(r.createdAt))}</td>
       <td class="col-actions">
@@ -625,17 +658,62 @@ async function afterTableChange(
   renderAdmin(root)
 }
 
-function csvEscape(value: string): string {
-  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value
-  if (/[",\n\r]/.test(safe)) return `"${safe.replaceAll('"', '""')}"`
-  return safe
+function playerDetailCell(row: FlatRow, slot: 'player1' | 'player2'): string {
+  const sport = row.sport
+  const name =
+    slot === 'player1' ? sport?.player1Name?.trim() : sport?.player2Name?.trim()
+  const mobile =
+    slot === 'player1' ? sport?.player1Mobile?.trim() : sport?.player2Mobile?.trim()
+  const age = slot === 'player1' ? sport?.player1Age : sport?.player2Age
+  if (!name && !mobile && age == null) return '<span class="cell-muted">—</span>'
+  const meta = [mobile, age != null ? `${age} yrs` : ''].filter(Boolean).join(' · ')
+  const remove =
+    sport?.format === 'double' && name
+      ? `<button type="button" class="btn btn-ghost btn-table btn-danger" data-drop-player="${slot}" data-drop-row="${escapeHtml(rowKey(row.registration.id, sport.sportId))}">Remove</button>`
+      : ''
+  return `<div class="player-cell"><strong>${escapeHtml(name || '—')}</strong>${meta ? `<span class="cell-meta">${escapeHtml(meta)}</span>` : ''}${remove}</div>`
 }
 
-function absoluteUploadUrl(url: string | undefined): string {
-  if (!url) return ''
-  if (/^https?:\/\//i.test(url)) return url
-  if (url.startsWith('/')) return `${window.location.origin}${url}`
-  return url
+async function dropDoublesPlayer(
+  regId: string,
+  sportId: SeatSportId,
+  slot: 'player1' | 'player2',
+): Promise<string> {
+  const reg = getRegistrations().find((item) => item.id === regId)
+  const sport = reg?.sports.find((item) => item.sportId === sportId)
+  if (!reg || !sport || sport.format !== 'double') {
+    throw new Error('This entry is not a doubles pair')
+  }
+  const removed =
+    (slot === 'player1' ? sport.player1Name : sport.player2Name)?.trim() ||
+    (slot === 'player1' ? 'Player 1' : 'Player 2')
+  const kept =
+    slot === 'player1'
+      ? {
+          player1Name: sport.player2Name,
+          player1Mobile: sport.player2Mobile,
+          player1Age: sport.player2Age,
+        }
+      : {
+          player1Name: sport.player1Name,
+          player1Mobile: sport.player1Mobile,
+          player1Age: sport.player1Age,
+        }
+  const nextSport: SelectedSport = {
+    ...sport,
+    format: 'single',
+    player1Name: kept.player1Name,
+    player1Mobile: kept.player1Mobile,
+    player1Age: kept.player1Age,
+    player2Name: undefined,
+    player2Mobile: undefined,
+    player2Age: undefined,
+  }
+  await updateRegistration({
+    ...reg,
+    sports: reg.sports.map((item) => (item.sportId === sportId ? nextSport : item)),
+  })
+  return removed
 }
 
 function skillLabel(skill: string | undefined): string {
@@ -651,88 +729,236 @@ function payModeLabel(mode: Registration['payMode']): string {
   return ''
 }
 
-function downloadCsv(rows: FlatRow[]): void {
-  const headers = [
-    '#',
-    'Seat',
-    'Event',
+function xmlEscape(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+function excelText(value: string): string {
+  return `<Cell ss:StyleID="Text"><Data ss:Type="String">${xmlEscape(value)}</Data></Cell>`
+}
+
+function excelHeader(value: string): string {
+  return `<Cell ss:StyleID="Header"><Data ss:Type="String">${xmlEscape(value)}</Data></Cell>`
+}
+
+function excelMoney(value: number): string {
+  return `<Cell ss:StyleID="Money"><Data ss:Type="Number">${value}</Data></Cell>`
+}
+
+function excelSheet(
+  name: string,
+  widths: number[],
+  headers: string[],
+  body: string[][],
+  moneyColumn?: number,
+): string {
+  const headerRow = `<Row ss:Height="24">${headers.map((header) => excelHeader(header)).join('')}</Row>`
+  const dataRows = body
+    .map(
+      (cells) =>
+        `<Row>${cells
+          .map((cell, index) =>
+            moneyColumn === index && cell !== ''
+              ? excelMoney(Number(cell) || 0)
+              : excelText(cell),
+          )
+          .join('')}</Row>`,
+    )
+    .join('')
+  const lastRow = Math.max(1, body.length + 1)
+  const lastCol = headers.length
+  return `
+    <Worksheet ss:Name="${xmlEscape(name)}">
+      <Table>
+        ${widths.map((width) => `<Column ss:AutoFitWidth="0" ss:Width="${width}"/>`).join('')}
+        ${headerRow}
+        ${dataRows}
+      </Table>
+      <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+        <FreezePanes/>
+        <FrozenNoSplit/>
+        <SplitHorizontal>1</SplitHorizontal>
+        <TopRowBottomPane>1</TopRowBottomPane>
+        <ActivePane>2</ActivePane>
+      </WorksheetOptions>
+      <AutoFilter x:Range="R1C1:R${lastRow}C${lastCol}" xmlns="urn:schemas-microsoft-com:office:excel"/>
+    </Worksheet>`
+}
+
+function playerExportRows(rows: FlatRow[]): string[][] {
+  const lines: string[][] = []
+  for (const row of rows) {
+    const registration = row.registration
+    const sport = row.sport
+    const sportName = sport
+      ? sport.skill
+        ? `${sportLabel(sport.sportId)} · ${skillLabel(sport.skill)}`
+        : sportLabel(sport.sportId)
+      : ''
+    const statusWord = sport?.status === 'waiting' ? 'Waiting' : sport?.status === 'confirmed' ? 'Confirmed' : ''
+    const seatStart = row.seatNumber
+    const payment = payModeLabel(registration.payMode)
+    const collected =
+      registration.payMode === 'cash' ? registration.paidTo?.trim() || 'Not named' : ''
+    const receipt = registration.receiptNo || registration.id
+    const when = formatWhen(registration.createdAt)
+    const format = sport ? formatLabel(sport.format, sport.sportId) : ''
+    const gender = genderLabel(registration.gender)
+
+    if (sport?.format === 'double') {
+      const first = sport.player1Name?.trim() || registration.fullName
+      const second = sport.player2Name?.trim() || ''
+      lines.push([
+        sportName,
+        gender,
+        statusWord,
+        seatStart != null ? String(seatStart) : '',
+        first,
+        sport.player1Mobile?.trim() || registration.mobile,
+        sport.player1Age != null ? String(sport.player1Age) : '',
+        format,
+        second,
+        receipt,
+        payment,
+        collected,
+        when,
+      ])
+      if (second) {
+        lines.push([
+          sportName,
+          gender,
+          statusWord,
+          seatStart != null ? String(seatStart + 1) : '',
+          second,
+          sport.player2Mobile?.trim() || '',
+          sport.player2Age != null ? String(sport.player2Age) : '',
+          format,
+          first,
+          receipt,
+          payment,
+          collected,
+          when,
+        ])
+      }
+      continue
+    }
+
+    lines.push([
+      sportName,
+      gender,
+      statusWord,
+      seatStart != null ? String(seatStart) : '',
+      sport?.player1Name?.trim() || registration.fullName,
+      sport?.player1Mobile?.trim() || registration.mobile,
+      sport?.player1Age != null ? String(sport.player1Age) : '',
+      format,
+      '',
+      receipt,
+      payment,
+      collected,
+      when,
+    ])
+  }
+  return lines
+}
+
+function paymentExportRows(rows: FlatRow[]): string[][] {
+  const seen = new Set<string>()
+  const lines: string[][] = []
+  for (const row of rows) {
+    const registration = row.registration
+    if (seen.has(registration.id)) continue
+    seen.add(registration.id)
+    const sports = registration.sports
+      .map((sport) => sportLabel(sport.sportId))
+      .join(', ')
+    lines.push([
+      registration.receiptNo || registration.id,
+      registration.fullName,
+      registration.mobile,
+      genderLabel(registration.gender),
+      sports,
+      payModeLabel(registration.payMode),
+      registration.payMode === 'cash' ? registration.paidTo?.trim() || 'Not named' : '',
+      registration.amount != null ? String(registration.amount) : '',
+      formatWhen(registration.createdAt),
+    ])
+  }
+  return lines
+}
+
+function downloadExcel(rows: FlatRow[]): void {
+  const playerHeaders = [
     'Sport',
-    'Skill',
-    'Full Name',
-    'Father / Spouse',
-    'Grandfather',
-    'Surname',
     'Gender',
-    'Format',
+    'Status',
+    'Seat',
+    'Player',
     'Mobile',
-    'Location',
-    'Birth Date',
-    'Player 1 Name',
-    'Player 1 Mobile',
-    'Player 1 Age',
-    'Player 2 Name',
-    'Player 2 Mobile',
-    'Player 2 Age',
+    'Age',
+    'Format',
+    'Partner',
     'Receipt',
-    'Payment Mode',
-    'Paid To',
+    'Payment',
+    'Collected by',
+    'Registered',
+  ]
+  const paymentHeaders = [
+    'Receipt',
+    'Name',
+    'Mobile',
+    'Gender',
+    'Sports',
+    'Payment',
+    'Collected by',
     'Amount',
-    'Player Photo URL',
-    'Payment Screenshot URL',
-    'Receipt PDF URL',
-    'Registration ID',
-    'Registered At',
+    'Registered',
   ]
-
-  const lines = [
-    headers.join(','),
-    ...rows.map((row, i) => {
-      const r = row.registration
-      const s = row.sport
-      return [
-        String(i + 1),
-        statusLabel(row),
-        eventById(r.event).title,
-        s ? sportLabel(s.sportId) : '',
-        skillLabel(s?.skill),
-        r.fullName,
-        s?.fatherName ?? '',
-        s?.grandfatherName ?? '',
-        s?.surname ?? '',
-        genderLabel(r.gender),
-        s ? formatLabel(s.format, s.sportId) : '',
-        r.mobile,
-        r.location,
-        s?.birthDate ?? '',
-        s?.player1Name ?? '',
-        s?.player1Mobile ?? '',
-        s?.player1Age != null ? String(s.player1Age) : '',
-        s?.player2Name ?? '',
-        s?.player2Mobile ?? '',
-        s?.player2Age != null ? String(s.player2Age) : '',
-        r.receiptNo || r.id,
-        payModeLabel(r.payMode),
-        r.paidTo ?? '',
-        r.amount != null ? String(r.amount) : '',
-        absoluteUploadUrl(s?.photoUrl),
-        absoluteUploadUrl(r.paymentShotUrl),
-        absoluteUploadUrl(r.receiptPdfUrl),
-        r.id,
-        r.createdAt,
-      ]
-        .map((cell) => csvEscape(cell))
-        .join(',')
-    }),
-  ]
-
-  const blob = new Blob(['\ufeff' + lines.join('\n')], {
-    type: 'text/csv;charset=utf-8',
-  })
+  const xml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#0B1F3A"/>
+  </Style>
+  <Style ss:ID="Header">
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#0B1F3A" ss:Pattern="Solid"/>
+   <Alignment ss:Vertical="Center" ss:Horizontal="Center"/>
+  </Style>
+  <Style ss:ID="Text">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#0B1F3A"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4DCC8"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="Money">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#0B1F3A"/>
+   <NumberFormat ss:Format="#,##0"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4DCC8"/>
+   </Borders>
+  </Style>
+ </Styles>
+ ${excelSheet('Players', [120, 70, 90, 55, 160, 110, 50, 140, 160, 140, 80, 150, 150], playerHeaders, playerExportRows(rows))}
+ ${excelSheet('Payments', [140, 160, 110, 70, 220, 80, 150, 80, 150], paymentHeaders, paymentExportRows(rows), 7)}
+</Workbook>`
+  const blob = new Blob([xml], { type: 'application/vnd.ms-excel' })
   const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `chansma-registrations-${new Date().toISOString().slice(0, 10)}.csv`
-  a.click()
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `chansma-registrations-${new Date().toISOString().slice(0, 10)}.xls`
+  link.click()
   URL.revokeObjectURL(url)
 }
 
@@ -854,6 +1080,8 @@ let searchQuery = ''
 let sportFilter: SportFilter = 'all'
 let genderFilter: GenderFilter = 'all'
 let statusFilter: StatusFilter = 'all'
+let payFilter: PayFilter = 'all'
+let collectorFilter = 'all'
 let adminView: 'registrations' | 'receipts' = 'registrations'
 let previewReceiptKey: string | null = null
 type AdminFoldId = 'availability' | 'slots' | 'ages' | 'fees'
@@ -1019,7 +1247,7 @@ export function renderAdmin(root: HTMLElement): void {
   const rows = sortSeatRows(
     allRows.filter(
       (row) =>
-        matchesFilters(row, sportFilter, genderFilter, statusFilter) &&
+        matchesFilters(row, sportFilter, genderFilter, statusFilter, payFilter, collectorFilter) &&
         matchesQuery(row, searchQuery.trim().toLowerCase()),
     ),
   )
@@ -1050,7 +1278,30 @@ export function renderAdmin(root: HTMLElement): void {
     sportFilter !== 'all' ||
     genderFilter !== 'all' ||
     statusFilter !== 'all' ||
+    payFilter !== 'all' ||
+    collectorFilter !== 'all' ||
     Boolean(searchQuery.trim())
+
+  const registrations = uniqueRegistrations(allRows)
+  const onlineCount = registrations.filter((reg) => reg.payMode === 'online').length
+  const cashRegs = registrations.filter((reg) => reg.payMode === 'cash')
+  const cashCount = cashRegs.length
+  const collectorTotals = new Map<string, { count: number; amount: number }>()
+  for (const reg of cashRegs) {
+    const name = reg.paidTo?.trim() || 'Not named'
+    const current = collectorTotals.get(name) ?? { count: 0, amount: 0 }
+    current.count += 1
+    current.amount += reg.amount || 0
+    collectorTotals.set(name, current)
+  }
+  const knownCollectors = new Set<string>(CASH_COLLECTORS)
+  const collectorNames = [
+    ...CASH_COLLECTORS,
+    ...[...collectorTotals.keys()]
+      .filter((name) => !knownCollectors.has(name))
+      .sort((a, b) => a.localeCompare(b)),
+  ]
+  const cashAmount = cashRegs.reduce((sum, reg) => sum + (reg.amount || 0), 0)
 
   const activeEl = document.activeElement as HTMLElement | null
   const activeName =
@@ -1322,7 +1573,7 @@ export function renderAdmin(root: HTMLElement): void {
             <button type="button" class="btn btn-ghost" data-admin="refresh" ${tableBusy ? 'disabled' : ''}>${withIcon(iconRefresh(), 'Refresh')}</button>
             ${
               adminView === 'registrations'
-                ? `<button type="button" class="btn btn-gold" data-admin="csv">${withIcon(iconDownload(), 'Export CSV')}</button>
+                ? `<button type="button" class="btn btn-gold" data-admin="csv">${withIcon(iconDownload(), 'Export Excel')}</button>
             ${
               isSuperAdmin()
                 ? `<button type="button" class="btn btn-ghost btn-danger" data-admin="bulk-delete" ${tableBusy || !selectedKeys.size ? 'disabled' : ''}>${withIcon(iconTrash(), `Delete selected (${selectedKeys.size})`)}</button>
@@ -1391,6 +1642,59 @@ export function renderAdmin(root: HTMLElement): void {
               ${filterChip(`Waiting (${waitingCount})`, statusFilter === 'waiting', 'data-filter-status="waiting"')}
             </div>
           </div>
+          <div class="filter-row">
+            <span class="filter-label">Payment</span>
+            <div class="filter-chips">
+              ${filterChip(`All (${registrations.length})`, payFilter === 'all', 'data-filter-pay="all"')}
+              ${filterChip(`Online (${onlineCount})`, payFilter === 'online', 'data-filter-pay="online"')}
+              ${filterChip(`Cash (${cashCount})`, payFilter === 'cash', 'data-filter-pay="cash"')}
+            </div>
+          </div>
+          ${
+            payFilter === 'cash'
+              ? `<div class="collector-panel">
+            <div class="collector-table-wrap">
+              <table class="collector-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Collected by</th>
+                    <th scope="col">Entries</th>
+                    <th scope="col">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="${collectorFilter === 'all' ? 'is-active' : ''}" data-filter-collector="all">
+                    <th scope="row">All cash</th>
+                    <td>${cashCount}</td>
+                    <td>${inr(cashAmount)}</td>
+                  </tr>
+                  ${collectorNames
+                    .map((name) => {
+                      const total = collectorTotals.get(name) ?? { count: 0, amount: 0 }
+                      return { name, ...total }
+                    })
+                    .sort(
+                      (a, b) =>
+                        b.count - a.count ||
+                        b.amount - a.amount ||
+                        a.name.localeCompare(b.name),
+                    )
+                    .map(
+                      (item) => `
+                  <tr class="${collectorFilter === item.name ? 'is-active' : ''}${item.count === 0 ? ' is-empty' : ''}" data-filter-collector="${escapeHtml(item.name)}">
+                    <th scope="row">${escapeHtml(item.name)}</th>
+                    <td>${item.count}</td>
+                    <td>${inr(item.amount)}</td>
+                  </tr>`,
+                    )
+                    .join('')}
+                </tbody>
+              </table>
+            </div>
+            <p class="filter-hint">Click a row to see that person's registrations. People with no cash entries stay at the bottom.</p>
+          </div>`
+              : ''
+          }
           <p class="filter-hint">Rows are ordered Confirmed then Waiting per sport and gender (oldest first). Doubles occupy 2 seat numbers (e.g. Confirmed 1–2). Seat counts recalculate after edit, delete, or reset.</p>
         </div>
 
@@ -1409,20 +1713,12 @@ export function renderAdmin(root: HTMLElement): void {
                 </th>
                 <th class="col-num">#</th>
                 <th class="col-seat">Seat</th>
-                <th class="col-event">Event</th>
                 <th class="col-sport">Sport</th>
-                <th>Full name</th>
-                <th>Gender</th>
-                <th>Format</th>
-                <th>Mobile</th>
-                <th>Location</th>
+                <th>Contact</th>
                 <th>Player 1</th>
-                <th>P1 mobile</th>
-                <th>P1 age</th>
                 <th>Player 2</th>
-                <th>P2 mobile</th>
-                <th>P2 age</th>
-                <th>Reference</th>
+                <th>Receipt</th>
+                <th>Payment</th>
                 <th>Registered</th>
                 <th class="col-actions">Actions</th>
               </tr>
@@ -1431,7 +1727,7 @@ export function renderAdmin(root: HTMLElement): void {
               ${
                 rows.length
                   ? rows.map((row, i) => rowHtml(row, i)).join('')
-                  : `<tr><td colspan="19" class="admin-empty">No rows match these filters.</td></tr>`
+                  : `<tr><td colspan="11" class="admin-empty">No rows match these filters.</td></tr>`
               }
             </tbody>
           </table>
@@ -1475,6 +1771,22 @@ export function renderAdmin(root: HTMLElement): void {
   root.querySelectorAll<HTMLButtonElement>('[data-filter-status]').forEach((btn) => {
     btn.addEventListener('click', () => {
       statusFilter = (btn.dataset.filterStatus || 'all') as StatusFilter
+      renderAdmin(root)
+    })
+  })
+
+  root.querySelectorAll<HTMLButtonElement>('[data-filter-pay]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const next = (btn.dataset.filterPay || 'all') as PayFilter
+      payFilter = next === 'online' || next === 'cash' ? next : 'all'
+      if (payFilter !== 'cash') collectorFilter = 'all'
+      renderAdmin(root)
+    })
+  })
+
+  root.querySelectorAll<HTMLElement>('[data-filter-collector]').forEach((row) => {
+    row.addEventListener('click', () => {
+      collectorFilter = row.dataset.filterCollector || 'all'
       renderAdmin(root)
     })
   })
@@ -1578,12 +1890,14 @@ export function renderAdmin(root: HTMLElement): void {
           renderAdmin(root)
         })
       } else if (action === 'csv') {
-        downloadCsv(rows)
+        downloadExcel(rows)
       } else if (action === 'clear') {
         searchQuery = ''
         sportFilter = 'all'
         genderFilter = 'all'
         statusFilter = 'all'
+        payFilter = 'all'
+        collectorFilter = 'all'
         renderAdmin(root)
       } else if (action === 'close-edit') {
         editTarget = null
@@ -1845,6 +2159,49 @@ export function renderAdmin(root: HTMLElement): void {
       editTarget = parsed
       tableError = ''
       renderAdmin(root)
+    })
+  })
+
+  root.querySelectorAll<HTMLButtonElement>('[data-drop-player]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.dropRow || ''
+      const slot = btn.dataset.dropPlayer === 'player1' ? 'player1' : 'player2'
+      if (!key || tableBusy) return
+      const { regId, sportId } = parseRowKey(key)
+      if (!sportId) return
+      const reg = getRegistrations().find((item) => item.id === regId)
+      const sport = reg?.sports.find((item) => item.sportId === sportId)
+      if (!reg || !sport || sport.format !== 'double') return
+      const removed =
+        (slot === 'player1' ? sport.player1Name : sport.player2Name)?.trim() ||
+        'this player'
+      const kept =
+        (slot === 'player1' ? sport.player2Name : sport.player1Name)?.trim() ||
+        'The other player'
+      const sportName = sportLabel(sportId)
+      if (
+        !confirm(
+          `Remove ${removed} from ${sportName} doubles?\n${kept} stays registered as a single, and one seat is freed.\nThe payment on this receipt is not changed.`,
+        )
+      ) {
+        return
+      }
+      tableBusy = true
+      tableError = ''
+      tableMessage = ''
+      renderAdmin(root)
+      void dropDoublesPlayer(regId, sportId, slot)
+        .then(async (name) => {
+          await afterTableChange(
+            root,
+            `${name} removed from ${sportName}. The other player is now a single and one seat is free.`,
+          )
+        })
+        .catch((error) => {
+          tableBusy = false
+          tableError = error instanceof Error ? error.message : 'Could not remove that player'
+          renderAdmin(root)
+        })
     })
   })
 

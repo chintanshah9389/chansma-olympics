@@ -3656,7 +3656,7 @@ button.upload-link-btn {
 
 .filter-label {
   flex: 0 0 auto;
-  min-width: 3.5rem;
+  min-width: 6.5rem;
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -3699,6 +3699,97 @@ button.upload-link-btn {
   font-size: 0.78rem;
   color: var(--muted);
   line-height: 1.4;
+}
+
+.collector-panel {
+  display: grid;
+  gap: 0.45rem;
+  max-width: 34rem;
+}
+
+.collector-table-wrap {
+  max-height: 22rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--white);
+}
+
+.collector-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.collector-table th,
+.collector-table td {
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.collector-table thead th {
+  position: sticky;
+  top: 0;
+  background: #0b1f3a;
+  color: #fff;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.collector-table td,
+.collector-table thead th:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.collector-table tbody tr {
+  cursor: pointer;
+}
+
+.collector-table tbody tr:hover {
+  background: rgba(212, 160, 23, 0.12);
+}
+
+.collector-table tbody tr.is-active th,
+.collector-table tbody tr.is-active td {
+  background: #0b1f3a;
+  color: #fff;
+}
+
+.collector-table tbody tr.is-empty th,
+.collector-table tbody tr.is-empty td {
+  color: var(--muted);
+}
+
+.collector-table tbody tr.is-empty.is-active th,
+.collector-table tbody tr.is-empty.is-active td {
+  color: #fff;
+}
+
+.stack-cell,
+.player-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  white-space: normal;
+  min-width: 9rem;
+  line-height: 1.3;
+}
+
+.stack-cell strong,
+.player-cell strong {
+  font-weight: 700;
+  color: var(--navy);
+}
+
+.cell-meta,
+.cell-muted {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
 .admin-table-wrap {
@@ -3821,6 +3912,14 @@ button.upload-link-btn {
   height: 1rem;
   accent-color: var(--navy);
   cursor: pointer;
+}
+
+.player-cell {
+  gap: 0.28rem;
+}
+
+.player-cell .btn-table {
+  margin: 0;
 }
 
 .btn-table {
