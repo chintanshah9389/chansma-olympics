@@ -5006,6 +5006,17 @@ img.sport-icon {
   width: 100%;
 }
 
+.field-icon input[type='date'] {
+  min-height: 3.15rem;
+  padding-right: 0.85rem;
+  color-scheme: light;
+}
+
+.field-icon input[type='date']::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.65;
+}
+
 .field-icon .input-wrap:focus-within .icon {
   color: var(--gold);
   transform: scale(1.08);

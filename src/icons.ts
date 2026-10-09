@@ -18,6 +18,11 @@ export const iconAge = (): string =>
     `<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 1.8"/>`,
   )
 
+export const iconCalendar = (): string =>
+  svg(
+    `<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17"/><path d="M8 3v4"/><path d="M16 3v4"/>`,
+  )
+
 export const iconPin = (): string =>
   svg(
     `<path d="M12 22s7-5.2 7-12a7 7 0 1 0-14 0c0 6.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>`,

@@ -9,6 +9,8 @@ import {
   getStorageError,
   mobileFieldError,
   ageFieldError,
+  dobFieldError,
+  isoDateYearsAgo,
   parseAge,
   normalizeMobile,
   sanitizeMobileInput,
@@ -66,7 +68,7 @@ import { destroyAdmin, isAdminRoute, renderAdmin } from './admin'
 import { GU, bi, biText, bilingualHtml } from './i18n'
 import {
   iconAdmin,
-  iconAge,
+  iconCalendar,
   iconArrowLeft,
   iconArrowRight,
   iconCamera,
@@ -222,7 +224,7 @@ function receiptSponsorHtml(): string {
 const state: FormState = {
   fullName: '',
   mobile: '',
-  age: '',
+  dob: '',
   location: '',
   gender: null,
   primarySport: null,
@@ -273,7 +275,7 @@ let lastSavedIds: string[] = []
 let submitBusy = false
 let frozenBill: { label: string; amount: number }[] | null = null
 let receiptCricketStatus: Partial<Record<'turf' | 'overarm', 'confirmed' | 'waiting'>> = {}
-let detailErrors: Partial<Record<'fullName' | 'mobile' | 'age', string>> = {}
+let detailErrors: Partial<Record<'fullName' | 'mobile' | 'dob', string>> = {}
 let sportError = ''
 let formatError = ''
 let doublesErrors: Partial<
@@ -437,6 +439,15 @@ function bilingualAgeError(
     ? getSportAgeLimit(sportId)
     : DEFAULT_SPORT_AGE_LIMIT
   return biText(en, GU.errAgeValid(minAge, maxAge))
+}
+
+function bilingualDobError(raw: string, required = true): string | null {
+  const en = dobFieldError(raw, { required })
+  if (!en) return null
+  if (en.includes('required')) return biText(en, GU.errDobRequired)
+  if (en.includes('valid')) return biText(en, GU.errDobInvalid)
+  const { minAge, maxAge } = DEFAULT_SPORT_AGE_LIMIT
+  return biText(en, GU.errDobValid(minAge, maxAge))
 }
 
 function ensureDoublesPlayers(id: SportId): DoublesPlayers {
@@ -843,9 +854,9 @@ function validateDetails(): boolean {
   if (mobileErr) detailErrors.mobile = mobileErr
   else state.mobile = sanitizeMobileInput(state.mobile)
 
-  const ageErr = bilingualAgeError(state.age, undefined, true)
-  if (ageErr) detailErrors.age = ageErr
-  else state.age = String(state.age).replace(/\D/g, '').slice(0, 3)
+  const dobErr = bilingualDobError(state.dob, true)
+  if (dobErr) detailErrors.dob = dobErr
+  else state.dob = String(state.dob).trim()
 
   return Object.keys(detailErrors).length === 0
 }
@@ -2122,7 +2133,7 @@ function clearFormFields(): void {
   foldState.clear()
   state.fullName = ''
   state.mobile = ''
-  state.age = ''
+  state.dob = ''
   state.location = ''
   state.gender = null
   state.primarySport = null
@@ -2207,7 +2218,7 @@ function stepHasErrors(): boolean {
     return Object.keys(cricketErrors).length > 0 || Object.keys(skillErrors).length > 0
   }
   if (phase.id === 'indoor' && phase.indoorStep === 1) {
-    return Boolean(detailErrors.fullName || detailErrors.mobile || detailErrors.age)
+    return Boolean(detailErrors.fullName || detailErrors.mobile || detailErrors.dob)
   }
   if (phase.id === 'indoor' && phase.indoorStep === 2) return Boolean(sportError)
   if (phase.id === 'indoor' && phase.indoorStep === 3) {
@@ -2374,7 +2385,7 @@ function renderStep1(): string {
   return `
     <div class="fade-step">
       <h2 class="step-title"><span class="step-title-icon">${iconUser()}</span> ${bi('Enter your details', GU.detailsTitle)}</h2>
-      <p class="step-sub">${bi('Enter your full name, a 10-digit mobile number (no +91 or leading 0), and your age.', GU.detailsSub)}</p>
+      <p class="step-sub">${bi('Enter your full name, a 10-digit mobile number (no +91 or leading 0), and your date of birth.', GU.detailsSub)}</p>
       ${apiError ? `<div class="alert is-error">${bilingualHtml(apiError)}</div>` : ''}
 
       <div class="field field-icon ${detailErrors.fullName ? 'is-invalid' : ''}">
@@ -2400,16 +2411,17 @@ function renderStep1(): string {
         ${detailErrors.mobile ? `<span class="error">${bilingualHtml(detailErrors.mobile)}</span>` : ''}
       </div>
 
-      <div class="field field-icon ${detailErrors.age ? 'is-invalid' : ''}">
-        <label for="age">${bi('Age', GU.age)}</label>
+      <div class="field field-icon ${detailErrors.dob ? 'is-invalid' : ''}">
+        <label for="dob">${bi('Date of birth', GU.dob)}</label>
         <div class="input-wrap">
-          ${iconAge()}
-          <input id="age" name="age" type="text" inputmode="numeric" autocomplete="off"
-            class="${detailErrors.age ? 'is-invalid' : ''}"
-            value="${escapeAttr(state.age)}" placeholder="${escapeAttr(ui(`${DEFAULT_SPORT_AGE_LIMIT.minAge}–${DEFAULT_SPORT_AGE_LIMIT.maxAge}`, GU.placeholderAge))}"
-            maxlength="3" />
+          ${iconCalendar()}
+          <input id="dob" name="dob" type="date" autocomplete="bday"
+            class="${detailErrors.dob ? 'is-invalid' : ''}"
+            value="${escapeAttr(state.dob)}"
+            min="${isoDateYearsAgo(DEFAULT_SPORT_AGE_LIMIT.maxAge)}"
+            max="${isoDateYearsAgo(DEFAULT_SPORT_AGE_LIMIT.minAge)}" />
         </div>
-        ${detailErrors.age ? `<span class="error">${bilingualHtml(detailErrors.age)}</span>` : ''}
+        ${detailErrors.dob ? `<span class="error">${bilingualHtml(detailErrors.dob)}</span>` : ''}
       </div>
 
     </div>
@@ -4542,16 +4554,14 @@ function bindEvents(): void {
         return
       }
 
-      const key = input.name as 'fullName' | 'mobile' | 'age'
-      if (key === 'fullName' || key === 'mobile' || key === 'age') {
+      const key = input.name as 'fullName' | 'mobile' | 'dob'
+      if (key === 'fullName' || key === 'mobile' || key === 'dob') {
         if (key === 'mobile') {
           const next = sanitizeMobileInput(input.value)
           if (input.value !== next) input.value = next
           state.mobile = next
-        } else if (key === 'age') {
-          const next = input.value.replace(/\D/g, '').slice(0, 3)
-          if (input.value !== next) input.value = next
-          state.age = next
+        } else if (key === 'dob') {
+          state.dob = input.value
         } else {
           state.fullName = input.value
         }
@@ -4562,6 +4572,18 @@ function bindEvents(): void {
           input.classList.remove('is-invalid')
           field?.querySelector('.error')?.remove()
         }
+      }
+    })
+
+    input.addEventListener('change', () => {
+      if (input.name !== 'dob') return
+      state.dob = input.value
+      if (detailErrors.dob) {
+        delete detailErrors.dob
+        const field = input.closest('.field')
+        field?.classList.remove('is-invalid')
+        input.classList.remove('is-invalid')
+        field?.querySelector('.error')?.remove()
       }
     })
 

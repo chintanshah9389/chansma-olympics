@@ -35,10 +35,11 @@ export const GU = {
   },
   detailsTitle: 'તમારી વિગતો દાખલ કરો',
   detailsSub:
-    'પૂરું નામ, ૧૦ અંકનો મોબાઇલ નંબર (+૯૧ અથવા ૦ વગર) અને ઉંમર દાખલ કરો.',
+    'પૂરું નામ, ૧૦ અંકનો મોબાઇલ નંબર (+૯૧ અથવા ૦ વગર) અને જન્મ તારીખ દાખલ કરો.',
   fullName: 'પૂરું નામ',
   mobile: 'મોબાઇલ નંબર',
   age: 'ઉંમર',
+  dob: 'જન્મ તારીખ',
   location: 'સ્થાન',
   placeholderName: 'દા.ત. રાહુલ શર્મા',
   placeholderMobile: '૧૦ અંકનો મોબાઇલ',
@@ -145,6 +146,10 @@ export const GU = {
   errAgeRequired: 'ઉંમર જરૂરી છે',
   errAgeValid: (min: number, max: number) =>
     `${min} થી ${max} વચ્ચેની ઉંમર દાખલ કરો`,
+  errDobRequired: 'જન્મ તારીખ જરૂરી છે',
+  errDobInvalid: 'માન્ય જન્મ તારીખ દાખલ કરો',
+  errDobValid: (min: number, max: number) =>
+    `${min} થી ${max} વર્ષની ઉંમરની જન્મ તારીખ દાખલ કરો`,
   errSelectFormat: 'દરેક રેકેટ રમત માટે સિંગલ અથવા ડબલ પસંદ કરો',
   errPlayer2Name: 'ખેલાડી ૨ નું પૂરું નામ જરૂરી છે',
   errPlayer2Mobile: 'ખેલાડી ૨ નો મોબાઇલ નંબર જરૂરી છે',

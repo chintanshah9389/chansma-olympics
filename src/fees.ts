@@ -61,16 +61,20 @@ export const BANK = {
 } as const
 
 export const CASH_COLLECTORS = [
-  'CHINTAN',
-  'YOGESH',
+  'SHAILEN BHAI',
+  'HARSHIL BHAI',
+  'YOGESH BHAI',
   'NIHAR',
-  'HARSHIL',
-  'TUSHAR',
-  'TUSHAR BC',
-  'CHIRAG - BHAYANDAR',
-  'CHIRAG - PRAMOD',
-  'CHIRAG - DAHISHAR',
+  'TUSHAR BHAI',
+  'TUSHAR BHAI BC',
+  'CHIRAG BHAI - BHAYANDAR',
+  'CHIRAG - PRAMOD BHAI',
+  'CHIRAG BHAI - DAHISHAR',
   'ANADBHAI',
   'PREMAL BHAI',
   'RIKIN',
+  'DAIVESH BHAI',
+  'RAHUL BHAI',
+  'KETAN BHAI',
+  'AMIT BHAI'
 ] as const

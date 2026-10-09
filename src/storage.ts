@@ -16,7 +16,13 @@ import type {
   SelectedSport,
   SportId,
 } from './types'
-import { applyAgeLimits, getAgeLimits, getSportAgeLimit, type SportAgeLimits } from './ageLimits'
+import {
+  applyAgeLimits,
+  DEFAULT_SPORT_AGE_LIMIT,
+  getAgeLimits,
+  getSportAgeLimit,
+  type SportAgeLimits,
+} from './ageLimits'
 import { applyCapacities, getCapacities, sportCapacity, type SportCapacities } from './sports'
 import { GU, biText } from './i18n'
 import type { EventId } from './events'
@@ -566,6 +572,61 @@ export function parseAge(
 ): number | undefined {
   if (ageFieldError(raw, { required: true, sportId })) return undefined
   return Number(String(raw).trim())
+}
+
+function parseIsoDate(raw: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(raw ?? '').trim())
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(year, month - 1, day)
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null
+  }
+  return date
+}
+
+export function ageFromDob(raw: string, today = new Date()): number | undefined {
+  const date = parseIsoDate(raw)
+  if (!date) return undefined
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  if (date > start) return undefined
+  let age = start.getFullYear() - date.getFullYear()
+  const month = start.getMonth() - date.getMonth()
+  if (month < 0 || (month === 0 && start.getDate() < date.getDate())) age -= 1
+  if (age < 0) return undefined
+  return age
+}
+
+/** First Details screen: date of birth, with age 5–100 from that date. */
+export function dobFieldError(
+  raw: string,
+  options: { required?: boolean } = {},
+): string | null {
+  const required = options.required !== false
+  const trimmed = String(raw ?? '').trim()
+  if (!trimmed) return required ? 'Date of birth is required' : null
+  const age = ageFromDob(trimmed)
+  if (age == null) return 'Enter a valid date of birth'
+  const { minAge, maxAge } = DEFAULT_SPORT_AGE_LIMIT
+  if (age < minAge || age > maxAge) {
+    return `Enter a date of birth for ages ${minAge}–${maxAge}`
+  }
+  return null
+}
+
+export function isoDateYearsAgo(years: number, from = new Date()): string {
+  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate())
+  d.setFullYear(d.getFullYear() - years)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 /** Singles/team = 1 seat; doubles = 2 seats against that gender quota. */
