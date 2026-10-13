@@ -66,7 +66,7 @@ import type {
   SportId,
   SportSeatStatus,
 } from './types'
-import type { Worksheet, Workbook } from 'exceljs'
+import { utils, write, type WorkSheet } from 'xlsx'
 import { onRealtimeUpdate } from './realtime'
 import {
   collectIndoorPlayers,
@@ -823,47 +823,33 @@ function fileLink(url: string | undefined): ExcelCell {
   return { text: href, href }
 }
 
-function addExcelSheet(
-  workbook: Workbook,
-  name: string,
-  widths: number[],
-  headers: string[],
-  body: ExcelCell[][],
-): Worksheet {
-  const sheet = workbook.addWorksheet(name)
-  sheet.columns = headers.map((header, index) => ({
-    header,
-    width: Math.max(12, Math.round((widths[index] ?? 110) / 7)),
-  }))
-  const headerRow = sheet.getRow(1)
-  headerRow.height = 24
-  headerRow.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } }
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B1F3A' } }
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
-
+function buildExcelSheet(headers: string[], body: ExcelCell[][], widths: number[]): WorkSheet {
+  const grid: (string | number)[][] = [headers]
   for (const line of body) {
-    const row = sheet.addRow(
-      line.map((cell) => (typeof cell === 'string' ? cell : cell.money ? Number(cell.text) || 0 : cell.text)),
+    grid.push(
+      line.map((cell) => {
+        if (typeof cell === 'string') return cell
+        if (cell.money) return Number(cell.text) || 0
+        return cell.text
+      }),
     )
-    line.forEach((cell, index) => {
-      const target = row.getCell(index + 1)
-      target.font = { name: 'Calibri', size: 11, color: { argb: 'FF0B1F3A' } }
-      target.alignment = { vertical: 'middle' }
-      target.border = { bottom: { style: 'thin', color: { argb: 'FFE4DCC8' } } }
-      if (typeof cell !== 'string' && cell.money) {
-        target.value = Number(cell.text) || 0
-        target.numFmt = '#,##0'
-      } else if (typeof cell !== 'string' && cell.href) {
-        target.value = { text: cell.text, hyperlink: cell.href }
-        target.font = { name: 'Calibri', size: 11, color: { argb: 'FF0563C1' }, underline: true }
-      }
-    })
   }
-
-  sheet.views = [{ state: 'frozen', ySplit: 1 }]
-  sheet.autoFilter = {
-    from: { row: 1, column: 1 },
-    to: { row: Math.max(1, body.length + 1), column: headers.length },
+  const sheet = utils.aoa_to_sheet(grid)
+  body.forEach((line, rowIndex) => {
+    line.forEach((cell, colIndex) => {
+      if (typeof cell === 'string') return
+      const ref = utils.encode_cell({ r: rowIndex + 1, c: colIndex })
+      const target = sheet[ref]
+      if (!target) return
+      if (cell.money) target.z = '#,##0'
+      if (cell.href) target.l = { Target: cell.href }
+    })
+  })
+  sheet['!cols'] = widths.map((width) => ({ wch: Math.max(12, Math.round(width / 7)) }))
+  if (headers.length > 0) {
+    const lastCol = utils.encode_col(headers.length - 1)
+    const lastRow = Math.max(1, body.length + 1)
+    sheet['!autofilter'] = { ref: `A1:${lastCol}${lastRow}` }
   }
   return sheet
 }
@@ -1047,26 +1033,40 @@ async function downloadExcel(rows: FlatRow[]): Promise<void> {
     'Registered',
     'Registration ID',
   ]
-  const { Workbook } = await import('exceljs')
-  const workbook = new Workbook()
-  workbook.creator = 'Chanasma Olympic'
-  addExcelSheet(workbook, 'Received', [140, 90, 120], ['Payment', 'Entries', 'Amount'], receivedExportRows(rows))
-  addExcelSheet(
+  const workbook = utils.book_new()
+  utils.book_append_sheet(
     workbook,
+    buildExcelSheet(['Payment', 'Entries', 'Amount'], receivedExportRows(rows), [140, 90, 120]),
+    'Received',
+  )
+  utils.book_append_sheet(
+    workbook,
+    buildExcelSheet(
+      playerHeaders,
+      playerExportRows(rows),
+      [110, 90, 120, 70, 90, 55, 150, 160, 110, 50, 160, 160, 110, 130, 140, 140, 110, 100, 140, 80, 150, 100, 340, 360, 340, 150, 180],
+    ),
     'Players',
-    [110, 90, 120, 70, 90, 55, 150, 160, 110, 50, 160, 160, 110, 130, 140, 140, 110, 100, 140, 80, 150, 100, 340, 360, 340, 150, 180],
-    playerHeaders,
-    playerExportRows(rows),
   )
-  addExcelSheet(
+  utils.book_append_sheet(
     workbook,
+    buildExcelSheet(
+      paymentHeaders,
+      paymentExportRows(rows),
+      [140, 160, 110, 130, 70, 220, 80, 150, 80, 340, 360, 340, 150, 180],
+    ),
     'Payments',
-    [140, 160, 110, 130, 70, 220, 80, 150, 80, 340, 360, 340, 150, 180],
-    paymentHeaders,
-    paymentExportRows(rows),
   )
-  const buffer = await workbook.xlsx.writeBuffer()
-  const blob = new Blob([buffer], {
+  const output = write(workbook, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer | Uint8Array | number[]
+  const bytes =
+    output instanceof Uint8Array
+      ? new Uint8Array(output.buffer, output.byteOffset, output.byteLength)
+      : output instanceof ArrayBuffer
+        ? new Uint8Array(output)
+        : Uint8Array.from(output)
+  const copy = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(copy).set(bytes)
+  const blob = new Blob([copy], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   })
   const url = URL.createObjectURL(blob)
