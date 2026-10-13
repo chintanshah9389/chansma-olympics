@@ -3776,7 +3776,15 @@ button.upload-link-btn {
 
 .summary-panel .collector-table-wrap {
   max-height: none;
-  overflow: visible;
+  overflow-x: auto;
+}
+
+.received-table-wrap {
+  max-width: 28rem;
+}
+
+.summary-table td {
+  white-space: nowrap;
 }
 
 .collector-table {

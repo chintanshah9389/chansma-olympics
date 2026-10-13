@@ -843,7 +843,6 @@ function playerExportLine(
     registration.receiptNo || registration.id,
     payModeLabel(registration.payMode),
     registration.payMode === 'cash' ? registration.paidTo?.trim() || 'Not named' : '',
-    registration.amount != null ? { text: String(registration.amount), money: true } : '',
     fileLink(sport?.photoUrl),
     fileLink(registration.paymentShotUrl),
     fileLink(registration.receiptPdfUrl),
@@ -928,6 +927,20 @@ function paymentExportRows(rows: FlatRow[]): ExcelCell[][] {
   return lines
 }
 
+function receivedExportRows(rows: FlatRow[]): ExcelCell[][] {
+  const regs = uniqueRegistrations(rows)
+  const online = regs.filter((reg) => reg.payMode === 'online')
+  const cash = regs.filter((reg) => reg.payMode === 'cash')
+  const onlineAmount = online.reduce((sum, reg) => sum + (reg.amount || 0), 0)
+  const cashAmount = cash.reduce((sum, reg) => sum + (reg.amount || 0), 0)
+  const money = (amount: number): ExcelCell => ({ text: String(amount), money: true })
+  return [
+    ['Online', String(online.length), money(onlineAmount)],
+    ['Cash', String(cash.length), money(cashAmount)],
+    ['Total', String(online.length + cash.length), money(onlineAmount + cashAmount)],
+  ]
+}
+
 function downloadExcel(rows: FlatRow[]): void {
   const playerHeaders = [
     'Sport',
@@ -951,7 +964,6 @@ function downloadExcel(rows: FlatRow[]): void {
     'Receipt',
     'Payment',
     'Collected by',
-    'Receipt amount',
     'Player photo',
     'Payment screenshot',
     'Receipt PDF',
@@ -1013,7 +1025,8 @@ function downloadExcel(rows: FlatRow[]): void {
    </Borders>
   </Style>
  </Styles>
- ${excelSheet('Players', [110, 90, 120, 70, 90, 55, 150, 160, 110, 50, 160, 160, 110, 130, 140, 140, 110, 100, 140, 80, 150, 90, 340, 360, 340, 150, 180], playerHeaders, playerExportRows(rows))}
+ ${excelSheet('Received', [140, 90, 120], ['Payment', 'Entries', 'Amount'], receivedExportRows(rows))}
+ ${excelSheet('Players', [110, 90, 120, 70, 90, 55, 150, 160, 110, 50, 160, 160, 110, 130, 140, 140, 110, 100, 140, 80, 150, 340, 360, 340, 150, 180], playerHeaders, playerExportRows(rows))}
  ${excelSheet('Payments', [140, 160, 110, 130, 70, 220, 80, 150, 80, 340, 360, 340, 150, 180], paymentHeaders, paymentExportRows(rows))}
 </Workbook>`
   const blob = new Blob([xml], { type: 'application/vnd.ms-excel' })
@@ -1381,6 +1394,9 @@ export function renderAdmin(root: HTMLElement): void {
       .sort((a, b) => a.localeCompare(b)),
   ]
   const cashAmount = cashRegs.reduce((sum, reg) => sum + (reg.amount || 0), 0)
+  const onlineRegs = registrations.filter((reg) => reg.payMode === 'online')
+  const onlineAmount = onlineRegs.reduce((sum, reg) => sum + (reg.amount || 0), 0)
+  const receivedAmount = onlineAmount + cashAmount
 
   const activeEl = document.activeElement as HTMLElement | null
   const activeName =
@@ -1684,6 +1700,40 @@ export function renderAdmin(root: HTMLElement): void {
           adminView === 'receipts'
             ? receiptsStoreHtml(receipts)
             : `
+        <section class="summary-panel">
+          <div class="summary-head">
+            <h2>Amount received</h2>
+            <p>Each registration is one payment. A partner chosen on that entry is not charged again.</p>
+          </div>
+          <div class="collector-table-wrap summary-table-wrap received-table-wrap">
+            <table class="collector-table summary-table">
+              <thead>
+                <tr>
+                  <th scope="col">Payment</th>
+                  <th scope="col">Entries</th>
+                  <th scope="col">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="${payFilter === 'online' ? 'is-active' : ''}">
+                  <th scope="row"><button type="button" class="summary-count${payFilter === 'online' ? ' is-active' : ''}" data-filter-pay="online">Online</button></th>
+                  <td>${onlineCount}</td>
+                  <td>${inr(onlineAmount)}</td>
+                </tr>
+                <tr class="${payFilter === 'cash' ? 'is-active' : ''}">
+                  <th scope="row"><button type="button" class="summary-count${payFilter === 'cash' ? ' is-active' : ''}" data-filter-pay="cash">Cash</button></th>
+                  <td>${cashCount}</td>
+                  <td>${inr(cashAmount)}</td>
+                </tr>
+                <tr class="summary-total">
+                  <th scope="row"><button type="button" class="summary-count" data-filter-pay="all">Total</button></th>
+                  <td>${onlineCount + cashCount}</td>
+                  <td>${inr(receivedAmount)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
         <section class="summary-panel">
           <div class="summary-head">
             <h2>Entries by sport</h2>
