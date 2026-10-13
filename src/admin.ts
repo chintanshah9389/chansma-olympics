@@ -66,7 +66,15 @@ import type {
   SportId,
   SportSeatStatus,
 } from './types'
+import type { Worksheet, Workbook } from 'exceljs'
 import { onRealtimeUpdate } from './realtime'
+import {
+  collectIndoorPlayers,
+  filterIndoorPlayers,
+  groupIndoorPlayers,
+  indoorComboCounts,
+  indoorGenderLabel,
+} from './indoorCombinations'
 
 type FlatRow = {
   registration: Registration
@@ -463,6 +471,69 @@ function inr(amount: number): string {
   return `₹${amount.toLocaleString('en-IN')}`
 }
 
+/** Split a receipt across its sports by current fee weight. Shares stay whole rupees and sum to the receipt. */
+function splitReceipt(amount: number, weights: number[]): number[] {
+  if (weights.length === 0) return []
+  const total = Math.max(0, Math.floor(amount))
+  const weightSum = weights.reduce((sum, weight) => sum + weight, 0)
+  if (weightSum <= 0) {
+    const base = Math.floor(total / weights.length)
+    let leftover = total - base * weights.length
+    return weights.map(() => {
+      const share = base + (leftover > 0 ? 1 : 0)
+      if (leftover > 0) leftover -= 1
+      return share
+    })
+  }
+  const shares = weights.map((weight) => Math.floor((total * weight) / weightSum))
+  let leftover = total - shares.reduce((sum, share) => sum + share, 0)
+  const order = weights
+    .map((weight, index) => ({ weight, index }))
+    .sort((a, b) => b.weight - a.weight || a.index - b.index)
+  let cursor = 0
+  while (leftover > 0) {
+    shares[order[cursor % order.length].index] += 1
+    leftover -= 1
+    cursor += 1
+  }
+  return shares
+}
+
+function registrationSportShares(registration: Registration): number[] {
+  const fees = getFees()
+  const weights = registration.sports.map((sport) => {
+    const fee = fees[sport.sportId] ?? 0
+    if (sport.sportId === 'turf' || sport.sportId === 'overarm') return Math.max(fee, 1)
+    return Math.max(0, fee) * seatWeight(sport.format)
+  })
+  return splitReceipt(registration.amount || 0, weights)
+}
+
+type SportMoney = { online: number; cash: number }
+
+function collectBySport(regs: Registration[]): Map<string, SportMoney> {
+  const fees = getFees()
+  const totals = new Map<string, SportMoney>()
+  for (const id of [...ALL_SPORT_IDS, 'turf', 'overarm']) totals.set(id, { online: 0, cash: 0 })
+  for (const reg of regs) {
+    const mode = reg.payMode === 'online' ? 'online' : reg.payMode === 'cash' ? 'cash' : ''
+    if (!mode) continue
+    const sports = reg.sports.filter((sport) => totals.has(sport.sportId))
+    if (!sports.length) continue
+    const weights = sports.map((sport) => {
+      const fee = fees[sport.sportId] ?? 0
+      if (sport.sportId === 'turf' || sport.sportId === 'overarm') return Math.max(fee, 1)
+      return Math.max(0, fee) * seatWeight(sport.format)
+    })
+    const shares = splitReceipt(reg.amount || 0, weights)
+    sports.forEach((sport, index) => {
+      const bucket = totals.get(sport.sportId)
+      if (bucket) bucket[mode] += shares[index] || 0
+    })
+  }
+  return totals
+}
+
 function rowHtml(row: FlatRow, index: number): string {
   const r = row.registration
   const s = row.sport
@@ -729,14 +800,6 @@ function payModeLabel(mode: Registration['payMode']): string {
   return ''
 }
 
-function xmlEscape(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
-
 type ExcelCell = string | { text: string; href?: string; money?: boolean }
 
 const PRODUCTION_ORIGIN = 'https://chansma-olympics-production.up.railway.app'
@@ -760,62 +823,55 @@ function fileLink(url: string | undefined): ExcelCell {
   return { text: href, href }
 }
 
-function excelText(value: string): string {
-  return `<Cell ss:StyleID="Text"><Data ss:Type="String">${xmlEscape(value)}</Data></Cell>`
-}
-
-function excelHeader(value: string): string {
-  return `<Cell ss:StyleID="Header"><Data ss:Type="String">${xmlEscape(value)}</Data></Cell>`
-}
-
-function excelMoney(value: number): string {
-  return `<Cell ss:StyleID="Money"><Data ss:Type="Number">${value}</Data></Cell>`
-}
-
-function excelLink(label: string, href: string): string {
-  return `<Cell ss:StyleID="Link" ss:HRef="${xmlEscape(href)}"><Data ss:Type="String">${xmlEscape(label)}</Data></Cell>`
-}
-
-function excelCell(cell: ExcelCell): string {
-  if (typeof cell === 'string') return excelText(cell)
-  if (cell.money) return excelMoney(Number(cell.text) || 0)
-  if (cell.href) return excelLink(cell.text, cell.href)
-  return excelText(cell.text)
-}
-
-function excelSheet(
+function addExcelSheet(
+  workbook: Workbook,
   name: string,
   widths: number[],
   headers: string[],
   body: ExcelCell[][],
-): string {
-  const headerRow = `<Row ss:Height="24">${headers.map((header) => excelHeader(header)).join('')}</Row>`
-  const dataRows = body
-    .map((cells) => `<Row>${cells.map((cell) => excelCell(cell)).join('')}</Row>`)
-    .join('')
-  const lastRow = Math.max(1, body.length + 1)
-  const lastCol = headers.length
-  return `
-    <Worksheet ss:Name="${xmlEscape(name)}">
-      <Table>
-        ${widths.map((width) => `<Column ss:AutoFitWidth="0" ss:Width="${width}"/>`).join('')}
-        ${headerRow}
-        ${dataRows}
-      </Table>
-      <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
-        <FreezePanes/>
-        <FrozenNoSplit/>
-        <SplitHorizontal>1</SplitHorizontal>
-        <TopRowBottomPane>1</TopRowBottomPane>
-        <ActivePane>2</ActivePane>
-      </WorksheetOptions>
-      <AutoFilter x:Range="R1C1:R${lastRow}C${lastCol}" xmlns="urn:schemas-microsoft-com:office:excel"/>
-    </Worksheet>`
+): Worksheet {
+  const sheet = workbook.addWorksheet(name)
+  sheet.columns = headers.map((header, index) => ({
+    header,
+    width: Math.max(12, Math.round((widths[index] ?? 110) / 7)),
+  }))
+  const headerRow = sheet.getRow(1)
+  headerRow.height = 24
+  headerRow.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } }
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B1F3A' } }
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
+
+  for (const line of body) {
+    const row = sheet.addRow(
+      line.map((cell) => (typeof cell === 'string' ? cell : cell.money ? Number(cell.text) || 0 : cell.text)),
+    )
+    line.forEach((cell, index) => {
+      const target = row.getCell(index + 1)
+      target.font = { name: 'Calibri', size: 11, color: { argb: 'FF0B1F3A' } }
+      target.alignment = { vertical: 'middle' }
+      target.border = { bottom: { style: 'thin', color: { argb: 'FFE4DCC8' } } }
+      if (typeof cell !== 'string' && cell.money) {
+        target.value = Number(cell.text) || 0
+        target.numFmt = '#,##0'
+      } else if (typeof cell !== 'string' && cell.href) {
+        target.value = { text: cell.text, hyperlink: cell.href }
+        target.font = { name: 'Calibri', size: 11, color: { argb: 'FF0563C1' }, underline: true }
+      }
+    })
+  }
+
+  sheet.views = [{ state: 'frozen', ySplit: 1 }]
+  sheet.autoFilter = {
+    from: { row: 1, column: 1 },
+    to: { row: Math.max(1, body.length + 1), column: headers.length },
+  }
+  return sheet
 }
 
 function playerExportLine(
   row: FlatRow,
   player: { name: string; mobile: string; age: string; partner: string; seat: string },
+  amount: ExcelCell,
 ): ExcelCell[] {
   const registration = row.registration
   const sport = row.sport
@@ -843,6 +899,7 @@ function playerExportLine(
     registration.receiptNo || registration.id,
     payModeLabel(registration.payMode),
     registration.payMode === 'cash' ? registration.paidTo?.trim() || 'Not named' : '',
+    amount,
     fileLink(sport?.photoUrl),
     fileLink(registration.paymentShotUrl),
     fileLink(registration.receiptPdfUrl),
@@ -857,6 +914,9 @@ function playerExportRows(rows: FlatRow[]): ExcelCell[][] {
     const registration = row.registration
     const sport = row.sport
     const seatStart = row.seatNumber
+    const sportIndex = sport ? registration.sports.indexOf(sport) : -1
+    const share = sportIndex >= 0 ? registrationSportShares(registration)[sportIndex] || 0 : 0
+    const amount: ExcelCell = { text: String(share), money: true }
     if (sport?.format === 'double') {
       const first = sport.player1Name?.trim() || registration.fullName
       const second = sport.player2Name?.trim() || ''
@@ -867,7 +927,7 @@ function playerExportRows(rows: FlatRow[]): ExcelCell[][] {
           age: sport.player1Age != null ? String(sport.player1Age) : '',
           partner: second,
           seat: seatStart != null ? String(seatStart) : '',
-        }),
+        }, amount),
       )
       if (second) {
         lines.push(
@@ -877,7 +937,7 @@ function playerExportRows(rows: FlatRow[]): ExcelCell[][] {
             age: sport.player2Age != null ? String(sport.player2Age) : '',
             partner: first,
             seat: seatStart != null ? String(seatStart + 1) : '',
-          }),
+          }, ''),
         )
       }
       continue
@@ -889,7 +949,7 @@ function playerExportRows(rows: FlatRow[]): ExcelCell[][] {
         age: sport?.player1Age != null ? String(sport.player1Age) : '',
         partner: '',
         seat: seatStart != null ? String(seatStart) : '',
-      }),
+      }, amount),
     )
   }
   return lines
@@ -941,7 +1001,7 @@ function receivedExportRows(rows: FlatRow[]): ExcelCell[][] {
   ]
 }
 
-function downloadExcel(rows: FlatRow[]): void {
+async function downloadExcel(rows: FlatRow[]): Promise<void> {
   const playerHeaders = [
     'Sport',
     'Skill',
@@ -964,6 +1024,7 @@ function downloadExcel(rows: FlatRow[]): void {
     'Receipt',
     'Payment',
     'Collected by',
+    'Amount',
     'Player photo',
     'Payment screenshot',
     'Receipt PDF',
@@ -986,54 +1047,32 @@ function downloadExcel(rows: FlatRow[]): void {
     'Registered',
     'Registration ID',
   ]
-  const xml = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
- <Styles>
-  <Style ss:ID="Default" ss:Name="Normal">
-   <Alignment ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#0B1F3A"/>
-  </Style>
-  <Style ss:ID="Header">
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>
-   <Interior ss:Color="#0B1F3A" ss:Pattern="Solid"/>
-   <Alignment ss:Vertical="Center" ss:Horizontal="Center"/>
-  </Style>
-  <Style ss:ID="Text">
-   <Alignment ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#0B1F3A"/>
-   <Borders>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4DCC8"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="Money">
-   <Alignment ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#0B1F3A"/>
-   <NumberFormat ss:Format="#,##0"/>
-   <Borders>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4DCC8"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="Link">
-   <Alignment ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#0563C1" ss:Underline="Single"/>
-   <Borders>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4DCC8"/>
-   </Borders>
-  </Style>
- </Styles>
- ${excelSheet('Received', [140, 90, 120], ['Payment', 'Entries', 'Amount'], receivedExportRows(rows))}
- ${excelSheet('Players', [110, 90, 120, 70, 90, 55, 150, 160, 110, 50, 160, 160, 110, 130, 140, 140, 110, 100, 140, 80, 150, 340, 360, 340, 150, 180], playerHeaders, playerExportRows(rows))}
- ${excelSheet('Payments', [140, 160, 110, 130, 70, 220, 80, 150, 80, 340, 360, 340, 150, 180], paymentHeaders, paymentExportRows(rows))}
-</Workbook>`
-  const blob = new Blob([xml], { type: 'application/vnd.ms-excel' })
+  const { Workbook } = await import('exceljs')
+  const workbook = new Workbook()
+  workbook.creator = 'Chanasma Olympic'
+  addExcelSheet(workbook, 'Received', [140, 90, 120], ['Payment', 'Entries', 'Amount'], receivedExportRows(rows))
+  addExcelSheet(
+    workbook,
+    'Players',
+    [110, 90, 120, 70, 90, 55, 150, 160, 110, 50, 160, 160, 110, 130, 140, 140, 110, 100, 140, 80, 150, 100, 340, 360, 340, 150, 180],
+    playerHeaders,
+    playerExportRows(rows),
+  )
+  addExcelSheet(
+    workbook,
+    'Payments',
+    [140, 160, 110, 130, 70, 220, 80, 150, 80, 340, 360, 340, 150, 180],
+    paymentHeaders,
+    paymentExportRows(rows),
+  )
+  const buffer = await workbook.xlsx.writeBuffer()
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `chansma-registrations-${new Date().toISOString().slice(0, 10)}.xls`
+  link.download = `chansma-registrations-${new Date().toISOString().slice(0, 10)}.xlsx`
   link.click()
   URL.revokeObjectURL(url)
 }
@@ -1158,7 +1197,7 @@ let genderFilter: GenderFilter = 'all'
 let statusFilter: StatusFilter = 'all'
 let payFilter: PayFilter = 'all'
 let collectorFilter = 'all'
-let adminView: 'registrations' | 'receipts' = 'registrations'
+let adminView: 'registrations' | 'receipts' | 'combinations' = 'registrations'
 let previewReceiptKey: string | null = null
 type AdminFoldId = 'availability' | 'slots' | 'ages' | 'fees'
 const adminFolds = new Set<AdminFoldId>()
@@ -1294,6 +1333,138 @@ function ensureAdminSession(root: HTMLElement): void {
     })
 }
 
+function combinationsHtml(registrations: Registration[], query: string): string {
+  const allPlayers = collectIndoorPlayers(registrations)
+  const players = filterIndoorPlayers(allPlayers, query)
+  const report = groupIndoorPlayers(players)
+  const all = indoorComboCounts(players)
+  const summaryRows = report.sizes.map((size) => {
+    const counts = indoorComboCounts(size.combos.flatMap((combo) => combo.players))
+    return { label: size.word, counts, combos: size.combos.length }
+  })
+  const countCells = (counts: ReturnType<typeof indoorComboCounts>): string =>
+    `<td>${counts.players}</td><td>${counts.male}</td><td>${counts.female}</td><td>${counts.mixed}</td>`
+
+  return `
+        <section class="summary-panel combo-panel">
+          <div class="summary-head">
+            <h2>Indoor combinations</h2>
+            <p>Each player is the mobile number on player 1 or player 2. The contact number on the entry is not used. A doubles partner is a separate player. Turf cricket and overarm cricket are not included.</p>
+            ${
+              query.trim()
+                ? `<p>Showing ${players.length} of ${allPlayers.length} players.</p>`
+                : ''
+            }
+          </div>
+          ${
+            players.length
+              ? `
+          <div class="collector-table-wrap summary-table-wrap">
+            <table class="collector-table summary-table">
+              <thead>
+                <tr>
+                  <th scope="col">Group</th>
+                  <th scope="col">Players</th>
+                  <th scope="col">Male</th>
+                  <th scope="col">Female</th>
+                  <th scope="col">Male and female</th>
+                  <th scope="col">Combinations</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${summaryRows
+                  .map(
+                    (row) => `
+                <tr>
+                  <th scope="row">${escapeHtml(row.label)}</th>
+                  ${countCells(row.counts)}
+                  <td>${row.combos}</td>
+                </tr>`,
+                  )
+                  .join('')}
+                <tr class="summary-total">
+                  <th scope="row">All indoor players</th>
+                  ${countCells(all)}
+                  <td>${report.sizes.reduce((sum, size) => sum + size.combos.length, 0)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          ${report.sizes
+            .map((size) => {
+              const sizeCounts = indoorComboCounts(size.combos.flatMap((combo) => combo.players))
+              return `
+          <section class="combo-size">
+            <h3>${escapeHtml(size.title)}</h3>
+            <div class="collector-table-wrap summary-table-wrap">
+              <table class="collector-table summary-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Sports</th>
+                    <th scope="col">Players</th>
+                    <th scope="col">Male</th>
+                    <th scope="col">Female</th>
+                    <th scope="col">Male and female</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${size.combos
+                    .map((combo) => {
+                      const counts = indoorComboCounts(combo.players)
+                      return `
+                  <tr>
+                    <th scope="row">${escapeHtml(combo.label)}</th>
+                    ${countCells(counts)}
+                  </tr>`
+                    })
+                    .join('')}
+                  <tr class="summary-total">
+                    <th scope="row">${escapeHtml(size.title)}</th>
+                    ${countCells(sizeCounts)}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            ${size.combos
+              .map((combo) => {
+                const counts = indoorComboCounts(combo.players)
+                return `
+            <div class="combo-player-block">
+              <h4>${escapeHtml(combo.label)} (${counts.players} · male ${counts.male} · female ${counts.female}${counts.mixed ? ` · male and female ${counts.mixed}` : ''})</h4>
+              <div class="collector-table-wrap summary-table-wrap combo-players">
+                <table class="collector-table summary-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Name</th>
+                      <th scope="col">Mobile</th>
+                      <th scope="col">Gender</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${combo.players
+                      .map(
+                        (player) => `
+                    <tr>
+                      <th scope="row">${escapeHtml(player.name)}</th>
+                      <td>${escapeHtml(player.mobile)}</td>
+                      <td>${escapeHtml(indoorGenderLabel(player.gender))}</td>
+                    </tr>`,
+                      )
+                      .join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>`
+              })
+              .join('')}
+          </section>`
+            })
+            .join('')}`
+              : `<p class="filter-hint">No indoor players match this search.</p>`
+          }
+        </section>`
+}
+
 export function renderAdmin(root: HTMLElement): void {
   if (!adminAuthed) {
     ensureAdminSession(root)
@@ -1397,6 +1568,10 @@ export function renderAdmin(root: HTMLElement): void {
   const onlineRegs = registrations.filter((reg) => reg.payMode === 'online')
   const onlineAmount = onlineRegs.reduce((sum, reg) => sum + (reg.amount || 0), 0)
   const receivedAmount = onlineAmount + cashAmount
+  const sportMoney = collectBySport(registrations)
+  const moneyFor = (id: string): SportMoney => sportMoney.get(id) ?? { online: 0, cash: 0 }
+  const sportOnline = [...sportMoney.values()].reduce((sum, item) => sum + item.online, 0)
+  const sportCash = [...sportMoney.values()].reduce((sum, item) => sum + item.cash, 0)
 
   const activeEl = document.activeElement as HTMLElement | null
   const activeName =
@@ -1639,6 +1814,7 @@ export function renderAdmin(root: HTMLElement): void {
 
         <div class="admin-views">
           <button type="button" class="admin-view-tab${adminView === 'registrations' ? ' is-selected' : ''}" data-admin="view-registrations">Registrations</button>
+          <button type="button" class="admin-view-tab${adminView === 'combinations' ? ' is-selected' : ''}" data-admin="view-combinations">Combination</button>
           <button type="button" class="admin-view-tab${adminView === 'receipts' ? ' is-selected' : ''}" data-admin="view-receipts">Receipt PDFs (${allReceipts.length})</button>
         </div>
 
@@ -1648,6 +1824,8 @@ export function renderAdmin(root: HTMLElement): void {
               adminView === 'receipts'
                 ? `<span><strong>${receipts.length}</strong> receipts</span>
             <span><strong>${receipts.filter((item) => item.receiptPdfUrl).length}</strong> PDFs stored</span>`
+                : adminView === 'combinations'
+                  ? `<span><strong>${collectIndoorPlayers(regs).length}</strong> indoor players</span>`
                 : `<span><strong>${regs.length}</strong> registrations</span>
             <span><strong>${seatUnitTotal}</strong> sport seats</span>
             <span class="stat-confirmed"><strong>${confirmedCount}</strong> confirmed</span>
@@ -1661,7 +1839,7 @@ export function renderAdmin(root: HTMLElement): void {
               type="search"
               class="admin-search"
               name="adminSearch"
-              placeholder="${adminView === 'receipts' ? 'Search receipt, name, mobile…' : 'Search name, mobile, sport, seat…'}"
+              placeholder="${adminView === 'receipts' ? 'Search receipt, name, mobile…' : adminView === 'combinations' ? 'Search player, mobile, sport…' : 'Search name, mobile, sport, seat…'}"
               value="${escapeHtml(searchQuery)}"
               autocomplete="off"
             />
@@ -1699,6 +1877,8 @@ export function renderAdmin(root: HTMLElement): void {
         ${
           adminView === 'receipts'
             ? receiptsStoreHtml(receipts)
+            : adminView === 'combinations'
+              ? combinationsHtml(regs, searchQuery)
             : `
         <section class="summary-panel">
           <div class="summary-head">
@@ -1737,7 +1917,7 @@ export function renderAdmin(root: HTMLElement): void {
         <section class="summary-panel">
           <div class="summary-head">
             <h2>Entries by sport</h2>
-            <p>Male ${maleSeats} · Female ${femaleSeats} · Total ${maleSeats + femaleSeats}. A doubles pair counts as 2. Click a number to open those rows.</p>
+            <p>Male ${maleSeats} · Female ${femaleSeats} · Total ${maleSeats + femaleSeats}. Online ${inr(sportOnline)} · Cash ${inr(sportCash)} · Amount ${inr(sportOnline + sportCash)}. A doubles pair counts as 2. Click a number to open those rows.</p>
           </div>
           <div class="collector-table-wrap summary-table-wrap">
             <table class="collector-table summary-table">
@@ -1749,6 +1929,9 @@ export function renderAdmin(root: HTMLElement): void {
                   <th scope="col">Total</th>
                   <th scope="col">Confirmed</th>
                   <th scope="col">Waiting</th>
+                  <th scope="col">Online</th>
+                  <th scope="col">Cash</th>
+                  <th scope="col">Amount</th>
                 </tr>
               </thead>
               <tbody>
@@ -1758,6 +1941,7 @@ export function renderAdmin(root: HTMLElement): void {
                     const female = seatCount((row) => row.sport?.sportId === id && row.registration.gender === 'female')
                     const confirmed = seatCount((row) => row.sport?.sportId === id && row.sport.status === 'confirmed')
                     const waiting = seatCount((row) => row.sport?.sportId === id && row.sport.status === 'waiting')
+                    const money = moneyFor(id)
                     return `
                 <tr>
                   <th scope="row">${escapeHtml(sportLabel(id))}</th>
@@ -1766,6 +1950,9 @@ export function renderAdmin(root: HTMLElement): void {
                   <td>${summaryButton(id, 'all', male + female)}</td>
                   <td>${confirmed}</td>
                   <td>${waiting}</td>
+                  <td>${inr(money.online)}</td>
+                  <td>${inr(money.cash)}</td>
+                  <td>${inr(money.online + money.cash)}</td>
                 </tr>`
                   })
                   .join('')}
@@ -1776,6 +1963,9 @@ export function renderAdmin(root: HTMLElement): void {
                   <td>${summaryButton('all', 'all', maleSeats + femaleSeats)}</td>
                   <td>${confirmedCount}</td>
                   <td>${waitingCount}</td>
+                  <td>${inr(sportOnline)}</td>
+                  <td>${inr(sportCash)}</td>
+                  <td>${inr(sportOnline + sportCash)}</td>
                 </tr>
               </tbody>
             </table>
@@ -2076,7 +2266,10 @@ export function renderAdmin(root: HTMLElement): void {
           renderAdmin(root)
         })
       } else if (action === 'csv') {
-        downloadExcel(rows)
+        void downloadExcel(rows).catch((error) => {
+          tableError = error instanceof Error ? error.message : 'Could not export Excel'
+          renderAdmin(root)
+        })
       } else if (action === 'clear') {
         searchQuery = ''
         sportFilter = 'all'
@@ -2093,6 +2286,9 @@ export function renderAdmin(root: HTMLElement): void {
         renderAdmin(root)
       } else if (action === 'view-receipts') {
         adminView = 'receipts'
+        renderAdmin(root)
+      } else if (action === 'view-combinations') {
+        adminView = 'combinations'
         renderAdmin(root)
       } else if (action === 'close-preview') {
         previewReceiptKey = null

@@ -3783,6 +3783,42 @@ button.upload-link-btn {
   max-width: 28rem;
 }
 
+.combo-panel {
+  gap: 1rem;
+}
+
+.combo-size {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.combo-size h3,
+.combo-player-block h4 {
+  margin: 0;
+  color: var(--navy);
+}
+
+.combo-size h3 {
+  font-size: 1rem;
+}
+
+.combo-player-block h4 {
+  font-size: 0.88rem;
+}
+
+.combo-players tbody tr {
+  cursor: default;
+}
+
+.combo-players tbody tr:hover {
+  background: transparent;
+}
+
+.combo-players td,
+.combo-players th {
+  text-align: left;
+}
+
 .summary-table td {
   white-space: nowrap;
 }
@@ -3838,6 +3874,17 @@ button.upload-link-btn {
 .collector-table tbody tr.is-empty.is-active th,
 .collector-table tbody tr.is-empty.is-active td {
   color: #fff;
+}
+
+.combo-players .collector-table tbody tr,
+.combo-players .collector-table tbody tr:hover {
+  cursor: default;
+  background: transparent;
+}
+
+.combo-players .collector-table td,
+.combo-players .collector-table th[scope='row'] {
+  text-align: left;
 }
 
 .stack-cell,
