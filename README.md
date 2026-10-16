@@ -38,6 +38,23 @@ npm run dev
 
 The server creates the `registrations` table automatically on boot.
 
+## Render
+
+`render.yaml` defines a free web service and a free Postgres database in Singapore.
+
+1. Push this repo to GitHub.
+2. In Render, choose **New → Blueprint** and select this repository.
+3. After the first deploy, copy the generated `ADMIN_PASSWORD` and `SUPERADMIN_PASSWORD` from the service environment.
+4. Load the registration workbook into that database from this machine (the workbook stays local; it is not committed):
+
+```bash
+DATABASE_URL="postgres://..." DATABASE_SSL=true npm run import:xls -- "C:\Users\9389c\Downloads\chansma-registrations-2026-10-13-v1.xls"
+```
+
+Use Render’s **external** database URL for that command, and `DATABASE_SSL=true`. The service itself uses the internal URL with `DATABASE_SSL=false`.
+
+Free Render Postgres expires 30 days after it is created. Player photos and receipt files are not inside the spreadsheet; only their old Railway paths are imported.
+
 Live slot counts use **WebSocket** (`/ws`): when anyone saves/deletes a registration, all connected browsers update immediately (no 2-second polling).
 
 ## API

@@ -1,0 +1,36 @@
+# Free web service + free Postgres. Free Postgres expires 30 days after creation.
+services:
+  - type: web
+    name: chansma-olympics
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22.14.0"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: chansma-db
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "false"
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: SUPERADMIN_USERNAME
+        value: superadmin
+      - key: SUPERADMIN_PASSWORD
+        generateValue: true
+      - key: ADMIN_SESSION_SECRET
+        generateValue: true
+
+databases:
+  - name: chansma-db
+    plan: free
+    region: singapore
+    postgresMajorVersion: "16"
