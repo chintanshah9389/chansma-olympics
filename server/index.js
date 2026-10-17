@@ -7,7 +7,9 @@ import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
+import XLSX from 'xlsx'
 import { WebSocketServer } from 'ws'
+import { importRegistrations, registrationsFromWorkbook } from './import-xls.js'
 
 dotenv.config()
 
@@ -1491,6 +1493,20 @@ app.get(/^(?!\/api).*/, (_req, res) => {
   })
 })
 
+async function seedRegistrationsFromWorkbook() {
+  const file = process.env.SEED_XLS
+  if (!file || !fs.existsSync(file)) return
+  const existing = await pool.query(`SELECT COUNT(*)::int AS n FROM registrations`)
+  if (existing.rows[0].n > 0) {
+    console.log('Registrations already present, skipping workbook seed')
+    return
+  }
+  const workbook = XLSX.readFile(file)
+  const registrations = registrationsFromWorkbook(workbook)
+  await importRegistrations(pool, registrations)
+  console.log(`Seeded ${registrations.length} registrations from workbook`)
+}
+
 async function start() {
   if (!process.env.DATABASE_URL) {
     console.error('DATABASE_URL is required')
@@ -1498,6 +1514,7 @@ async function start() {
   }
 
   await ensureSchema()
+  await seedRegistrationsFromWorkbook()
   await recalculateSeatStatuses()
   server.listen(port, () => {
     console.log(`CHANSMA API + WebSocket on http://localhost:${port}`)
